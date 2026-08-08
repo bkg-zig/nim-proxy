@@ -16,12 +16,21 @@ operator routes share the session gate. See
 "operator console":
 a 216px sticky sidebar (collapses to an icon-only rail below 860px) with the
 nav and follow-state/uptime/version footer, a top bar with range pills + a
-custom date-range picker, and five persona-aligned tabs, each ordered
+custom date-range picker, and seven persona-aligned tabs, each ordered
 **at-a-glance → trends → detail**:
 
 - **Overview** (landing, balanced) — KPI cards + threshold ring gauges,
   request and token sparklines, a health strip, a p50/p95 performance
   band, top models & clients.
+- **Catalog** (provisioner) — the upstream NIM `/v1/models` directory as a
+  copy-per-id list with publisher chips, cache-freshness header, and an
+  operator Refresh (`?refresh=1`); reads the session-gated
+  `/api/models` endpoint that shares the proxy's catalog cache (see
+  [dashboard-model-catalog](../decisions/dashboard-model-catalog.md)).
+- **Queue** (operator) — in-flight requests with client/model/path/phase/age
+  and an admin terminate action (error code `-91`); reads the session-gated
+  `/api/queue` endpoint (see
+  [request-queue-and-termination](../decisions/request-queue-and-termination.md)).
 - **Models** (benchmarker) — KPI cards, tokens/min-by-model chart, a
   TTFT/tok-s/TPOT/upstream quantile quad, a "how responses end" breakdown,
   reasoning-vs-output share, a head-to-head scorecard with best-in-column
@@ -107,11 +116,16 @@ back to a stable hash-to-hue (`hueFor`). The old first-six-slots categorical
 allocator (`modelSlots`/`slotFor`) is gone; there's no "ran out of colors"
 case left to handle.
 
-**Dark-only.** The light palette and `prefers-color-scheme` handling were
-removed; the `:root` tokens are a single dark set (page `#0B0D09` with a
-faint green radial glow, cards `rgba(255,255,255,0.03)`, accent
-`#76B900`/`#A7D65A`, amber `#D9A521`, red `#E36868`, blue `#4D6BFE`). This
-was a committed design decision, not an oversight — see
+**Dual theme.** The app is light by default with a dark theme under
+`prefers-color-scheme`; the topbar `#theme-toggle` pins either mode, persisted
+in `localStorage` (`np-theme`) and applied by an inline `<head>` script so a
+reload never flashes the wrong theme. `:root` carries the light tokens (page
+`#f8f9fb`, cards `#ffffff`, indigo accent `#6366F1`); `:root[data-theme="dark"]`
+replaces them (page `#111625`, cards `#1A2135`, indigo `#818CF8`). The renderers
+emit semantic roles — `--brand`, `--green`/`--amber`/`--red`, `--med`/`--p95` —
+and both `MED`/`P95` and the `gGreen`/`gMuted` SVG gradients resolve them via
+`css()`/`var(--…)`, so the JS holds no color literals and every chart recolors
+live on toggle. This reverses the earlier dark-only choice; see the amendment in
 [dashboard-operator-console-redesign](../decisions/dashboard-operator-console-redesign.md).
 
 **Fonts and marks** use system UI/monospace stacks and fixed local SVG/text
