@@ -1,18 +1,28 @@
-//! Test harness: an in-process mock NIM upstream with scriptable behaviors,
-//! and a launcher that runs the real proxy binary against it.
+//! Test harness: an in-process mock NIM upstream with scriptable behaviors
+//! and per-request start/complete event tracking, plus a launcher that runs
+//! the real proxy binary as a CLI child process against it.
+//!
+//! The event log is the proof surface for the gateway contract: every
+//! upstream request logs `Start` when the mock handler begins and
+//! `Complete` when its response body has been fully consumed by the proxy
+//! (or `Aborted` when the connection was torn down first). FIFO,
+//! single-flight, and the complete-response barrier are all asserted
+//! directly against that log.
 
 use std::collections::VecDeque;
+use std::io::BufRead;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::body::{Body, Bytes};
+use axum::body::Body;
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 
 /// One scripted response for the next chat-completions request. The queue is
 /// consumed front-to-back; when empty, `Ok` is the default.
@@ -22,34 +32,32 @@ pub enum Behavior {
     Ok,
     /// 429 with this Retry-After (seconds).
     RateLimited(u64),
-    /// 429 carrying NIM's worker-exhaustion signature — model-scoped, so the
-    /// proxy must back off the model (governor), never cool down the lane.
-    WorkerExhausted,
     /// A retryable server error.
     ServerError(u16),
-    /// 400 unconditionally.
-    BadRequest,
     /// 400 only when the request carries stream_options (injection probe).
     BadRequestIfInjected,
-    /// Send headers + one chunk, then stall forever.
-    Hang,
     /// Wait before sending response headers, simulating an upstream that has
     /// accepted work but has not started its response.
     DelayHeaders(u64),
-    /// Stream a data event at this interval forever. Unlike `Hang`, this stays
-    /// active often enough that an idle timeout must not be what stops it.
-    ActiveStream(u64),
-    /// Emit one measured usage event, then remain active until the request
-    /// deadline owns stream finalization.
-    ActiveStreamWithEarlyUsage(u64),
-    /// Write large chunks without pause until downstream backpressure fills
-    /// the proxy's response channel.
-    FloodStream,
-    /// Buffered response with an unknown `finish_reason` — exercises the
-    /// server-side clamp that collapses odd values to `other`.
-    OddFinish,
-    /// A fixed upstream response for an exact proxy-boundary assertion.
-    ExactResponse { content_type: String, body: String },
+    /// A finite slow SSE stream: `n` data chunks spaced `interval_ms` apart,
+    /// then usage + [DONE] + clean termination.
+    StreamChunks { n: u64, interval_ms: u64 },
+}
+
+#[derive(Clone, Debug)]
+pub enum EventKind {
+    Start,
+    Complete,
+    Aborted,
+}
+
+/// One observed upstream lifecycle event.
+#[derive(Clone, Debug)]
+pub struct UpstreamEvent {
+    pub kind: EventKind,
+    /// Request sequence number at the mock (arrival order).
+    pub seq: u64,
+    pub at: Instant,
 }
 
 pub struct Hit {
@@ -62,16 +70,45 @@ pub struct Hit {
 pub struct MockState {
     pub hits: Mutex<Vec<Hit>>,
     pub script: Mutex<VecDeque<Behavior>>,
+    /// Scriptable /v1/models responses (catalog fetch failures).
+    pub models_script: Mutex<VecDeque<Behavior>>,
     pub models_hits: AtomicUsize,
-    pub models_delay_ms: AtomicU64,
+    events: Mutex<Vec<UpstreamEvent>>,
+    active: AtomicUsize,
+    max_active: AtomicUsize,
+    next_seq: AtomicU64,
 }
 
 impl MockState {
     pub fn push(&self, b: Behavior) {
         self.script.lock().unwrap().push_back(b);
     }
+    /// Script the next /v1/models fetch (default: a normal catalog).
+    pub fn push_models(&self, b: Behavior) {
+        self.models_script.lock().unwrap().push_back(b);
+    }
     pub fn hit_count(&self) -> usize {
         self.hits.lock().unwrap().len()
+    }
+    pub fn hit_bodies(&self) -> Vec<serde_json::Value> {
+        self.hits
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|h| h.body.clone())
+            .collect()
+    }
+    /// Conversation markers ("convo-A" etc.) in upstream arrival order.
+    pub fn convos(&self) -> Vec<String> {
+        self.hit_bodies()
+            .iter()
+            .map(|b| {
+                b["messages"][1]["content"]
+                    .as_str()
+                    .unwrap_or("?")
+                    .to_owned()
+            })
+            .collect()
     }
     pub fn hit_keys(&self) -> Vec<String> {
         self.hits
@@ -81,9 +118,85 @@ impl MockState {
             .map(|h| h.key.clone())
             .collect()
     }
-    pub fn hit_gap(&self, a: usize, b: usize) -> Duration {
-        let hits = self.hits.lock().unwrap();
-        hits[b].at.duration_since(hits[a].at)
+
+    /// Arrival instants of every upstream hit, in order.
+    pub fn hit_times(&self) -> Vec<Instant> {
+        self.hits.lock().unwrap().iter().map(|h| h.at).collect()
+    }
+
+    fn record(&self, kind: EventKind, seq: u64) {
+        if matches!(kind, EventKind::Start) {
+            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut seen_max = self.max_active.load(Ordering::SeqCst);
+            while now > seen_max {
+                match self.max_active.compare_exchange(
+                    seen_max,
+                    now,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(_) => break,
+                    Err(cur) => seen_max = cur,
+                }
+            }
+        } else {
+            self.active.fetch_sub(1, Ordering::SeqCst);
+        }
+        self.events.lock().unwrap().push(UpstreamEvent {
+            kind,
+            seq,
+            at: Instant::now(),
+        });
+    }
+
+    /// (seq, time) of every upstream request start, in order.
+    pub fn starts(&self) -> Vec<(u64, Instant)> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::Start))
+            .map(|e| (e.seq, e.at))
+            .collect()
+    }
+
+    /// (seq, time) of every upstream completion (body fully consumed), in
+    /// order.
+    pub fn completes(&self) -> Vec<(u64, Instant)> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::Complete))
+            .map(|e| (e.seq, e.at))
+            .collect()
+    }
+
+    /// Highest number of simultaneously-active upstream requests ever seen.
+    pub fn max_active(&self) -> usize {
+        self.max_active.load(Ordering::SeqCst)
+    }
+
+    /// For every upstream request i, assert complete(i) <= start(i+1).
+    pub fn assert_completion_barrier(&self) {
+        let starts = self.starts();
+        let completes = self.completes();
+        assert_eq!(
+            starts.len(),
+            completes.len(),
+            "every upstream request must complete (no hangs, no leaks)"
+        );
+        for i in 0..starts.len().saturating_sub(1) {
+            assert!(
+                starts[i + 1].1 >= completes[i].1,
+                "complete-response barrier violated: request {} started before request {} \
+                 fully completed (start at {:#?} < complete at {:#?})",
+                i + 1,
+                i,
+                starts[i + 1].1,
+                completes[i].1
+            );
+        }
     }
 }
 
@@ -108,15 +221,30 @@ pub async fn start_mock() -> MockNim {
 
 async fn mock_models(State(state): State<Arc<MockState>>) -> Response {
     state.models_hits.fetch_add(1, Ordering::SeqCst);
-    let delay = state.models_delay_ms.load(Ordering::SeqCst);
-    if delay > 0 {
-        tokio::time::sleep(Duration::from_millis(delay)).await;
+    let behavior = state
+        .models_script
+        .lock()
+        .unwrap()
+        .pop_front()
+        .unwrap_or(Behavior::Ok);
+    match behavior {
+        Behavior::RateLimited(secs) => Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .header(header::RETRY_AFTER, secs.to_string())
+            .body(Body::from(r#"{"error":"catalog rate limited"}"#))
+            .unwrap()
+            .into_response(),
+        Behavior::ServerError(code) => Response::builder()
+            .status(StatusCode::from_u16(code).unwrap())
+            .body(Body::from(r#"{"error":"catalog boom"}"#))
+            .unwrap()
+            .into_response(),
+        _ => axum::Json(serde_json::json!({
+            "object": "list",
+            "data": [{"id": "mock/model-a", "object": "model", "created": 0, "owned_by": "mock"}]
+        }))
+        .into_response(),
     }
-    axum::Json(serde_json::json!({
-        "object": "list",
-        "data": [{"id": "mock/model-a", "object": "model", "created": 0, "owned_by": "mock"}]
-    }))
-    .into_response()
 }
 
 async fn mock_chat(
@@ -145,42 +273,31 @@ async fn mock_chat(
     let wants_stream = parsed["stream"].as_bool().unwrap_or(false);
     let injected = parsed.get("stream_options").is_some();
 
-    match behavior {
+    // The event lifecycle: Start here, Complete when the response body has
+    // been consumed to its end, Aborted if the connection is torn down
+    // first. The proxy's single-flight gate serializes these whole spans.
+    let seq = state.next_seq.fetch_add(1, Ordering::SeqCst);
+    state.record(EventKind::Start, seq);
+
+    let usage = "\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":2}";
+
+    let resp: Response = match behavior {
         Behavior::RateLimited(secs) => Response::builder()
             .status(StatusCode::TOO_MANY_REQUESTS)
             .header(header::RETRY_AFTER, secs.to_string())
             .body(Body::from(r#"{"error":"rate limited"}"#))
-            .unwrap(),
-        Behavior::WorkerExhausted => Response::builder()
-            .status(StatusCode::TOO_MANY_REQUESTS)
-            .body(Body::from(
-                r#"{"detail":"ResourceExhausted: Worker local total request limit reached (32/32)"}"#,
-            ))
-            .unwrap(),
+            .unwrap()
+            .into_response(),
         Behavior::ServerError(code) => Response::builder()
             .status(StatusCode::from_u16(code).unwrap())
             .body(Body::from(r#"{"error":"boom"}"#))
-            .unwrap(),
-        Behavior::BadRequest => bad_request(),
-        Behavior::BadRequestIfInjected if injected => bad_request(),
-        Behavior::OddFinish => axum::Json(serde_json::json!({
-            "id": "mock-1", "object": "chat.completion",
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "banana"}],
-            "usage": {"prompt_tokens": 11, "completion_tokens": 2}
-        }))
-        .into_response(),
-        Behavior::ExactResponse { content_type, body } => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, content_type)
-            .body(Body::from(body))
-            .unwrap(),
-        Behavior::Hang => {
-            let stream = futures_util::stream::once(async {
-                Ok::<_, std::io::Error>(Bytes::from("data: {\"choices\":[]}\n\n"))
-            })
-            .chain(futures_util::stream::pending());
-            sse(Body::from_stream(stream))
-        }
+            .unwrap()
+            .into_response(),
+        Behavior::BadRequestIfInjected if injected => Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(r#"{"error":{"message":"bad stream_options"}}"#))
+            .unwrap()
+            .into_response(),
         Behavior::DelayHeaders(ms) => {
             tokio::time::sleep(Duration::from_millis(ms)).await;
             axum::Json(serde_json::json!({
@@ -190,97 +307,65 @@ async fn mock_chat(
             }))
             .into_response()
         }
-        Behavior::ActiveStream(ms) => {
-            let stream = futures_util::stream::unfold((), move |()| async move {
-                tokio::time::sleep(Duration::from_millis(ms)).await;
-                Some((
-                    Ok::<_, std::io::Error>(Bytes::from(
-                        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n",
-                    )),
-                    (),
-                ))
+        Behavior::StreamChunks { n, interval_ms } => {
+            let chunks: Vec<Result<Bytes, std::io::Error>> = (0..n)
+                .map(|i| {
+                    Ok(Bytes::from(format!(
+                        "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"chunk-{i}\"}}}}]}}\n\n"
+                    )))
+                })
+                .chain([Ok(Bytes::from(format!(
+                    "data: {{\"choices\":[],{usage}}}\n\n"
+                )))])
+                .chain([Ok(Bytes::from("data: [DONE]\n\n"))])
+                .collect();
+            // Emit the chunks on the requested cadence so the stream stays
+            // open (and the single-flight permit held) for a known duration.
+            let paced = futures_util::stream::iter(chunks).then(move |chunk| async move {
+                tokio::time::sleep(Duration::from_millis(interval_ms)).await;
+                chunk
             });
-            sse(Body::from_stream(stream))
-        }
-        Behavior::ActiveStreamWithEarlyUsage(ms) => {
-            let early = Some(Bytes::from(
-                "data: {\"choices\":[{\"index\":0,\"delta\":{}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}\n\n",
-            ));
-            let stream = futures_util::stream::unfold(early, move |early| async move {
-                let bytes = match early {
-                    Some(bytes) => bytes,
-                    None => {
-                        tokio::time::sleep(Duration::from_millis(ms)).await;
-                        Bytes::from(
-                            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n",
-                        )
-                    }
-                };
-                Some((Ok::<_, std::io::Error>(bytes), None))
-            });
-            sse(Body::from_stream(stream))
-        }
-        Behavior::FloodStream => {
-            let chunk = Bytes::from(vec![b'x'; 1024 * 1024]);
-            let stream = futures_util::stream::unfold(chunk, |chunk| async move {
-                Some((Ok::<_, std::io::Error>(chunk.clone()), chunk))
-            });
-            sse(Body::from_stream(stream))
+            sse(Body::from_stream(paced))
         }
         Behavior::Ok | Behavior::BadRequestIfInjected => {
-            // Echo the request's shape so e2e can exercise the quality metrics:
-            // a request that offers tools gets a tool_calls response, otherwise
-            // a normal stop. Usage always carries reasoning-token details.
-            let offers_tools = parsed.get("tools").is_some();
-            let usage = "\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":2,\"completion_tokens_details\":{\"reasoning_tokens\":2}}";
             if wants_stream {
-                let mut chunks: Vec<Result<Bytes, std::io::Error>> = Vec::new();
-                if offers_tools {
-                    chunks.push(Ok(Bytes::from(
-                        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"get_weather\"}}]}}]}\n\n",
-                    )));
-                    chunks.push(Ok(Bytes::from(
-                        "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
-                    )));
-                } else {
-                    chunks.push(Ok(Bytes::from(
+                let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+                    Ok(Bytes::from(
                         "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n",
-                    )));
-                    chunks.push(Ok(Bytes::from(
+                    )),
+                    Ok(Bytes::from(
                         "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":\"stop\"}]}\n\n",
-                    )));
-                }
-                chunks.push(Ok(Bytes::from(format!(
-                    "data: {{\"choices\":[],{usage}}}\n\n"
-                ))));
-                chunks.push(Ok(Bytes::from("data: [DONE]\n\n")));
+                    )),
+                    Ok(Bytes::from(format!("data: {{\"choices\":[],{usage}}}\n\n"))),
+                    Ok(Bytes::from("data: [DONE]\n\n")),
+                ];
                 sse(Body::from_stream(futures_util::stream::iter(chunks)))
-            } else if offers_tools {
-                axum::Json(serde_json::json!({
-                    "id": "mock-1", "object": "chat.completion",
-                    "choices": [{"index": 0, "message": {"role": "assistant", "tool_calls": [
-                        {"index": 0, "id": "c1", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
-                    ]}, "finish_reason": "tool_calls"}],
-                    "usage": {"prompt_tokens": 11, "completion_tokens": 2, "completion_tokens_details": {"reasoning_tokens": 2}}
-                }))
-                .into_response()
             } else {
                 axum::Json(serde_json::json!({
                     "id": "mock-1", "object": "chat.completion",
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello world"}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 11, "completion_tokens": 2, "completion_tokens_details": {"reasoning_tokens": 2}}
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 2}
                 }))
                 .into_response()
             }
         }
-    }
+    };
+    tracked(state, seq, resp)
 }
 
-fn bad_request() -> Response {
-    Response::builder()
-        .status(StatusCode::BAD_REQUEST)
-        .body(Body::from(r#"{"error":{"message":"bad stream_options"}}"#))
-        .unwrap()
+/// Wrap a response body so its full consumption is observable: `Complete` is
+/// recorded when the stream is polled to its end, `Aborted` when the
+/// connection is dropped first. All mock bodies go through this, so a
+/// "complete" always means the proxy actually drained the upstream response.
+fn tracked(state: Arc<MockState>, seq: u64, resp: Response) -> Response {
+    let (parts, body) = resp.into_parts();
+    let stream = TrackedStream {
+        inner: body.into_data_stream(),
+        state,
+        seq,
+        finished: false,
+    };
+    Response::from_parts(parts, Body::from_stream(stream))
 }
 
 fn sse(body: Body) -> Response {
@@ -291,103 +376,50 @@ fn sse(body: Body) -> Response {
         .unwrap()
 }
 
-/// Test identity every store fixture contains: a superuser with a cheap
-/// (1000-iteration) precomputed password hash — the iteration count is
-/// encoded per hash, so the proxy verifies it with zero prod impact.
-pub const TEST_USER: &str = "root";
-pub const TEST_PASSWORD: &str = "test-password-1";
-const TEST_HASH: &str = "pbkdf2-sha256$1000$00000000000000000000000000000000$dd5fe0be04ca7f9e24642561a5d4635c52c40be82cbd7587b5eddc913ad3c7a7";
-
-pub fn sha256_hex(s: &str) -> String {
-    use sha2::Digest;
-    let d = sha2::Sha256::digest(s.as_bytes());
-    d.iter().map(|b| format!("{b:02x}")).collect()
+struct TrackedStream<S> {
+    inner: S,
+    state: Arc<MockState>,
+    seq: u64,
+    finished: bool,
 }
 
-/// A config-store fixture. Defaults mirror the old test posture: open /v1,
-/// three NIM keys at 40 rpm, short waits, 1s heartbeat.
-pub struct StoreOpts {
-    /// Open /v1 (no client keys needed). False = keyed mode.
-    pub open: bool,
-    /// (name, plaintext secret) client keys; stored as SHA-256 digests.
-    pub clients: Vec<(String, String)>,
-    /// (key, rpm) NIM keys, all enabled and owned by TEST_USER.
-    pub nim_keys: Vec<(String, usize)>,
-    /// Additional users (username, role: "admin" | "user"), all sharing
-    /// TEST_PASSWORD.
-    pub extra_users: Vec<(String, String)>,
-    pub max_wait_secs: u64,
-    pub heartbeat_secs: u64,
-    pub stream_idle_secs: u64,
-    pub request_timeout_secs: u64,
-    pub max_inflight: usize,
-    pub strict_passthrough: bool,
-}
+impl<S: Stream + Unpin> Stream for TrackedStream<S> {
+    type Item = S::Item;
 
-impl Default for StoreOpts {
-    fn default() -> Self {
-        Self {
-            open: true,
-            clients: Vec::new(),
-            nim_keys: vec![
-                ("test-key-0".into(), 40),
-                ("test-key-1".into(), 40),
-                ("test-key-2".into(), 40),
-            ],
-            extra_users: Vec::new(),
-            max_wait_secs: 30,
-            heartbeat_secs: 1,
-            stream_idle_secs: 300,
-            request_timeout_secs: 300,
-            max_inflight: 512,
-            strict_passthrough: false,
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match std::pin::Pin::new(&mut self.inner).poll_next(cx) {
+            std::task::Poll::Ready(None) => {
+                if !self.finished {
+                    self.finished = true;
+                    self.state.record(EventKind::Complete, self.seq);
+                }
+                std::task::Poll::Ready(None)
+            }
+            other => other,
         }
     }
 }
 
-impl StoreOpts {
-    pub fn json(&self, upstream: &str) -> serde_json::Value {
-        let mut users = vec![serde_json::json!({
-            "username": TEST_USER, "password_hash": TEST_HASH, "role": "superuser"
-        })];
-        for (name, role) in &self.extra_users {
-            users.push(serde_json::json!({
-                "username": name, "password_hash": TEST_HASH, "role": role
-            }));
+impl<S> Drop for TrackedStream<S> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.finished = true;
+            self.state.record(EventKind::Aborted, self.seq);
         }
-        serde_json::json!({
-            "version": 1,
-            "upstream": {
-                "base_url": upstream,
-                "nim_keys": self.nim_keys.iter().map(|(k, rpm)| serde_json::json!({
-                    "key": k, "owner": TEST_USER, "enabled": true, "rpm": rpm
-                })).collect::<Vec<_>>(),
-            },
-            "client_auth": {
-                "mode": if self.open { "open" } else { "keyed" },
-                "keys": self.clients.iter().map(|(name, secret)| serde_json::json!({
-                    "name": name, "secret_sha256": sha256_hex(secret), "owner": TEST_USER
-                })).collect::<Vec<_>>(),
-            },
-            "limits": {
-                "max_wait_secs": self.max_wait_secs,
-                "heartbeat_secs": self.heartbeat_secs,
-                "stream_idle_secs": self.stream_idle_secs,
-                "request_timeout_secs": self.request_timeout_secs,
-                "max_inflight": self.max_inflight,
-                "strict_passthrough": self.strict_passthrough,
-            },
-            "users": users,
-        })
     }
 }
 
-/// The real proxy binary running as a child process against a per-test
-/// tempdir DATA_DIR (removed on drop).
+/// The real proxy binary running as a CLI child process, with its stdout and
+/// stderr captured into shared line buffers (so the banner and any leak can
+/// be asserted without blocking the pipes).
 pub struct Proxy {
     pub port: u16,
     pub child: std::process::Child,
-    pub data_dir: std::path::PathBuf,
+    pub stdout: Arc<Mutex<Vec<String>>>,
+    pub stderr: Arc<Mutex<Vec<String>>>,
 }
 
 impl Proxy {
@@ -395,21 +427,35 @@ impl Proxy {
         format!("http://127.0.0.1:{}{}", self.port, path)
     }
 
-    /// Kill -TERM; returns the exit status.
-    pub fn terminate(mut self) -> std::process::ExitStatus {
+    /// Lines printed so far on stdout (the startup banner; never logs).
+    pub fn stdout_text(&self) -> String {
+        self.stdout.lock().unwrap().join("\n")
+    }
+
+    /// Lines printed so far on stderr (logs).
+    pub fn stderr_text(&self) -> String {
+        self.stderr.lock().unwrap().join("\n")
+    }
+
+    /// Send SIGTERM and await the process's exit (bounded by `max_wait`).
+    /// Awaits — never blocks the test runtime — so the in-process mock and
+    /// in-flight clients keep making progress while the proxy drains.
+    pub async fn terminate(mut self, max_wait: Duration) -> std::process::ExitStatus {
         let _ = std::process::Command::new("kill")
             .args(["-TERM", &self.child.id().to_string()])
             .status();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + max_wait;
         loop {
             if let Ok(Some(status)) = self.child.try_wait() {
                 return status;
             }
             assert!(
                 Instant::now() < deadline,
-                "proxy did not exit after SIGTERM"
+                "proxy did not exit after SIGTERM; stdout:\n{}\nstderr:\n{}",
+                self.stdout_text(),
+                self.stderr_text()
             );
-            std::thread::sleep(Duration::from_millis(50));
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 }
@@ -433,77 +479,104 @@ impl Drop for Proxy {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let _ = std::fs::remove_dir_all(&self.data_dir);
     }
 }
 
-fn fresh_data_dir() -> std::path::PathBuf {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static N: AtomicU32 = AtomicU32::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "nimproxy-e2e-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::SeqCst)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// The NIM key every test proxy uses (asserted upstream, never leaked).
+pub const TEST_KEY: &str = "nvapi-e2e-test-key-0123456789";
+
+pub struct ProxyOpts {
+    pub rpm: u32,
+    pub window_secs: Option<u64>,
+    /// Shutdown-drain bound override (test knob; production default 30s).
+    pub shutdown_drain_secs: Option<u64>,
+    pub extra_args: Vec<String>,
 }
 
-/// Start the proxy with the default store fixture (open /v1, no auth
-/// boilerplate for behavior tests). `envs` still override container-level
-/// vars (PORT is set for you; HISTORY_SAMPLE_SECS etc. go here).
-pub async fn start_proxy(upstream: &str, envs: &[(&str, &str)]) -> Proxy {
-    start_proxy_with(upstream, StoreOpts::default(), envs).await
+impl Default for ProxyOpts {
+    fn default() -> Self {
+        Self {
+            rpm: 30,
+            window_secs: None,
+            shutdown_drain_secs: None,
+            extra_args: Vec::new(),
+        }
+    }
 }
 
-/// Start the proxy with a custom store fixture.
-pub async fn start_proxy_with(upstream: &str, opts: StoreOpts, envs: &[(&str, &str)]) -> Proxy {
-    let data_dir = fresh_data_dir();
-    let store = serde_json::to_string_pretty(&opts.json(upstream)).unwrap();
-    std::fs::write(data_dir.join("config.json"), store).unwrap();
-    spawn_and_wait_healthy(data_dir, envs).await
-}
-
-/// Start the proxy with NO store: it must boot healthy in setup mode
-/// (claimably closed — /v1 answers 503, browsers land on /setup).
-pub async fn start_proxy_fresh() -> Proxy {
-    spawn_and_wait_healthy(fresh_data_dir(), &[]).await
-}
-
-/// Boot the proxy against a pre-populated DATA_DIR and wait until healthy —
-/// for hand-written recovery fixtures whose exact shape `StoreOpts` can't
-/// express (e.g. orphan-owned keys with no users).
-pub async fn start_proxy_in(data_dir: std::path::PathBuf, envs: &[(&str, &str)]) -> Proxy {
-    spawn_and_wait_healthy(data_dir, envs).await
-}
-
-/// Gracefully stop the proxy but KEEP its DATA_DIR, then relaunch a fresh
-/// instance against the same store — restart round-trip tests. `terminate()`
-/// (via Drop) would delete the dir, so we repoint the doomed handle at a
-/// throwaway path first and hand the real dir to the new instance.
-pub async fn restart(mut proxy: Proxy, envs: &[(&str, &str)]) -> Proxy {
-    let data_dir = std::mem::replace(
-        &mut proxy.data_dir,
-        std::env::temp_dir().join("nimproxy-restart-placeholder"),
-    );
-    proxy.terminate();
-    spawn_and_wait_healthy(data_dir, envs).await
-}
-
-async fn spawn_and_wait_healthy(data_dir: std::path::PathBuf, envs: &[(&str, &str)]) -> Proxy {
+/// Start the proxy binary with a validated CLI invocation against `upstream`.
+pub async fn start_proxy(upstream: &str, opts: ProxyOpts) -> Proxy {
     let port = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().port()
     };
-    let mut cmd = base_cmd(port, &data_dir);
+    let mut args = vec![
+        "--nim-api-key".to_owned(),
+        TEST_KEY.to_owned(),
+        "--rpm".to_owned(),
+        opts.rpm.to_string(),
+        "--port".to_owned(),
+        port.to_string(),
+        "--base-url".to_owned(),
+        upstream.to_owned(),
+    ];
+    args.extend(opts.extra_args);
+    let mut envs: Vec<(String, String)> = vec![("RUST_LOG".into(), "nim_proxy=info".into())];
+    if let Some(secs) = opts.window_secs {
+        envs.push(("NIMPROXY_WINDOW_SECS".into(), secs.to_string()));
+    }
+    if let Some(secs) = opts.shutdown_drain_secs {
+        envs.push(("NIMPROXY_SHUTDOWN_DRAIN_SECS".into(), secs.to_string()));
+    }
+    spawn_and_wait_healthy(port, &args, &envs).await
+}
+
+async fn spawn_and_wait_healthy(port: u16, args: &[String], envs: &[(String, String)]) -> Proxy {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_nim-proxy"));
+    cmd.env_clear()
+        .current_dir(std::env::temp_dir()) // dodge any local .env
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let child = cmd.spawn().expect("spawn proxy");
+    // Under `cargo llvm-cov` the spawned server must write its own coverage
+    // profile, but env_clear() above dropped the profile path — forward it back
+    // when present (a no-op in normal test runs).
+    if let Ok(v) = std::env::var("LLVM_PROFILE_FILE") {
+        cmd.env("LLVM_PROFILE_FILE", v);
+    }
+    let mut child = cmd.spawn().expect("spawn proxy");
+    let stdout = Arc::new(Mutex::new(Vec::new()));
+    let stderr = Arc::new(Mutex::new(Vec::new()));
+    if let Some(out) = child.stdout.take() {
+        let sink = stdout.clone();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(out).lines() {
+                match line {
+                    Ok(line) => sink.lock().unwrap().push(line),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    if let Some(err) = child.stderr.take() {
+        let sink = stderr.clone();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(err).lines() {
+                match line {
+                    Ok(line) => sink.lock().unwrap().push(line),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
     let proxy = Proxy {
         port,
         child,
-        data_dir,
+        stdout,
+        stderr,
     };
 
     let client = reqwest::Client::new();
@@ -514,191 +587,30 @@ async fn spawn_and_wait_healthy(data_dir: std::path::PathBuf, envs: &[(&str, &st
                 return proxy;
             }
         }
-        assert!(Instant::now() < deadline, "proxy did not become healthy");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-fn base_cmd(port: u16, data_dir: &std::path::Path) -> std::process::Command {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_nim-proxy"));
-    cmd.env_clear()
-        .current_dir(std::env::temp_dir()) // dodge any local .env
-        .env("PORT", port.to_string())
-        .env("DATA_DIR", data_dir)
-        .env("RUST_LOG", "nim_proxy=warn")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // Under `cargo llvm-cov` the spawned server must write its own coverage
-    // profile, but env_clear() above dropped the profile path — forward it back
-    // when present (a no-op in normal test runs).
-    if let Ok(v) = std::env::var("LLVM_PROFILE_FILE") {
-        cmd.env("LLVM_PROFILE_FILE", v);
-    }
-    cmd
-}
-
-/// Spawn the proxy against a pre-populated DATA_DIR and assert it exits
-/// non-zero without ever becoming healthy — used for boot-posture tests
-/// (corrupt store, future version, unwritable DATA_DIR).
-pub async fn expect_refuses_to_start(data_dir: std::path::PathBuf) {
-    let store_snapshot = startup_refusal_store_snapshot(&data_dir);
-    expect_refuses_to_start_with_store_snapshot(data_dir, store_snapshot).await;
-}
-
-/// Assert the startup posture for a deliberately invalid DATA_DIR that cannot
-/// contain a config store, without claiming retained-store coverage.
-pub async fn expect_refuses_to_start_without_store_retention(data_dir: std::path::PathBuf) {
-    expect_refuses_to_start_with_store_snapshot(data_dir, None).await;
-}
-
-async fn expect_refuses_to_start_with_store_snapshot(
-    data_dir: std::path::PathBuf,
-    store_snapshot: Option<(std::path::PathBuf, Vec<u8>)>,
-) {
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
-    let mut child = base_cmd(port, &data_dir).spawn().expect("spawn proxy");
-    let client = reqwest::Client::new();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Ok(Some(status)) = child.try_wait() {
-            assert!(
-                !status.success(),
-                "proxy should exit non-zero, got {status:?}"
-            );
-            if let Some((store_path, store_before)) = store_snapshot {
-                assert_eq!(
-                    std::fs::read(&store_path)
-                        .expect("startup refusal must retain the existing config store"),
-                    store_before,
-                    "failed startup changed config.json bytes"
-                );
-            }
-            let _ = std::fs::remove_dir_all(&data_dir);
-            return;
-        }
-        if let Ok(r) = client
-            .get(format!("http://127.0.0.1:{port}/health"))
-            .send()
-            .await
-        {
-            if r.status().is_success() {
-                let _ = child.kill();
-                panic!("proxy became healthy but should have refused to start");
-            }
-        }
         assert!(
             Instant::now() < deadline,
-            "proxy neither exited nor became healthy"
+            "proxy did not become healthy; stdout:\n{}\nstderr:\n{}",
+            proxy.stdout_text(),
+            proxy.stderr_text()
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
-fn startup_refusal_store_snapshot(
-    data_dir: &std::path::Path,
-) -> Option<(std::path::PathBuf, Vec<u8>)> {
-    assert!(
-        data_dir.is_absolute(),
-        "startup-refusal tests require an absolute DATA_DIR: {}",
-        data_dir.display()
-    );
-    let store_path = data_dir.join("config.json");
-    store_path.is_file().then(|| {
-        let store_before = std::fs::read(&store_path).expect("read startup-refusal store snapshot");
-        (store_path, store_before)
-    })
-}
-
-#[test]
-fn startup_refusal_store_snapshot_rejects_relative_data_dir() {
-    let result = std::panic::catch_unwind(|| {
-        startup_refusal_store_snapshot(std::path::Path::new("relative-data-dir"));
-    });
-    assert!(
-        result.is_err(),
-        "relative DATA_DIR must fail before a store check can be skipped"
-    );
-}
-
-/// A tempdir for boot-posture tests that pre-write store contents.
-pub fn scratch_data_dir() -> std::path::PathBuf {
-    fresh_data_dir()
-}
-
-/// Log in as `username` (TEST_PASSWORD) and return the session cookie value.
-pub async fn login_as(proxy: &Proxy, username: &str) -> String {
-    let resp = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap()
-        .post(proxy.url("/login"))
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(format!("username={username}&password={TEST_PASSWORD}"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 303, "login should succeed for {username}");
-    let cookie = resp
-        .headers()
-        .get("set-cookie")
-        .expect("session cookie")
-        .to_str()
-        .unwrap();
-    cookie.split(';').next().unwrap().to_owned()
-}
-
-/// Session cookie for the default superuser.
-pub async fn login(proxy: &Proxy) -> String {
-    login_as(proxy, TEST_USER).await
-}
-
-/// Fetch /metrics authenticated with scraper-style header credentials.
-pub async fn metrics(proxy: &Proxy) -> String {
-    reqwest::Client::new()
-        .get(proxy.url("/metrics"))
-        .header(
-            "authorization",
-            format!("Bearer {TEST_USER}:{TEST_PASSWORD}"),
-        )
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap()
-}
-
-/// Drive the setup wizard's single POST; returns the session cookie it mints.
-pub async fn complete_setup(
-    proxy: &Proxy,
-    username: &str,
-    password: &str,
-    base_url: &str,
-    nim_keys: &[(&str, usize)],
-) -> String {
-    let body = serde_json::json!({
-        "username": username,
-        "password": password,
-        "base_url": base_url,
-        "nim_keys": nim_keys.iter().map(|(k, rpm)| serde_json::json!({"key": k, "rpm": rpm})).collect::<Vec<_>>(),
-    });
-    let resp = reqwest::Client::new()
-        .post(proxy.url("/setup"))
-        .json(&body)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200, "setup should succeed");
-    let cookie = resp
-        .headers()
-        .get("set-cookie")
-        .expect("setup mints a session")
-        .to_str()
-        .unwrap();
-    cookie.split(';').next().unwrap().to_owned()
+/// Run the proxy binary once to completion (CLI validation cases) and return
+/// (exit code, stdout, stderr).
+pub fn run_cli_once(args: &[&str]) -> (Option<i32>, String, String) {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_nim-proxy"));
+    cmd.env_clear().args(args);
+    if let Ok(v) = std::env::var("LLVM_PROFILE_FILE") {
+        cmd.env("LLVM_PROFILE_FILE", v);
+    }
+    let out = cmd.output().expect("run proxy once");
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
 }
 
 /// Read an SSE response to completion (until [DONE], an error event, or EOF);
@@ -721,8 +633,7 @@ pub async fn read_sse(resp: reqwest::Response) -> String {
     out
 }
 
-/// A chat-completions body for conversation `convo` (affinity follows the
-/// system + first-user messages).
+/// A chat-completions body for conversation `convo` (unique marker).
 pub fn chat_body(convo: &str, stream: bool) -> serde_json::Value {
     serde_json::json!({
         "model": "mock/model-a",
@@ -732,4 +643,28 @@ pub fn chat_body(convo: &str, stream: bool) -> serde_json::Value {
             {"role": "user", "content": convo}
         ]
     })
+}
+
+/// Fire one buffered chat completion; returns the response.
+pub async fn chat(client: &reqwest::Client, proxy: &Proxy, convo: &str) -> reqwest::Response {
+    client
+        .post(proxy.url("/v1/chat/completions"))
+        .json(&chat_body(convo, false))
+        .send()
+        .await
+        .expect("chat request")
+}
+
+/// Fire one streaming chat completion; returns the SSE response.
+pub async fn chat_stream(
+    client: &reqwest::Client,
+    proxy: &Proxy,
+    convo: &str,
+) -> reqwest::Response {
+    client
+        .post(proxy.url("/v1/chat/completions"))
+        .json(&chat_body(convo, true))
+        .send()
+        .await
+        .expect("stream request")
 }

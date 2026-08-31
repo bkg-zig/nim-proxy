@@ -2,6 +2,11 @@
 # no libc, no package manager. TLS roots are compiled into the binary
 # (rustls + webpki-roots), so not even CA certificates are needed.
 #
+# The image is optional — the product is the binary, run directly. When a
+# container is convenient, ENTRYPOINT is the binary itself, so CLI flags
+# pass straight through:
+#   docker run ghcr.io/miztertea/nim-proxy --nim-api-key nvapi-... --rpm 30
+#
 # Multi-arch: buildx sets TARGETARCH per requested platform and runs this stage
 # emulated on that arch, so we build for the matching native musl target.
 # Digest-pinned so a retargeted tag can't silently change the build base;
@@ -30,25 +35,22 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
 
 COPY src ./src
 RUN touch src/main.rs && cargo build --release --target "$(cat /tmp/target)" \
-    && cp "target/$(cat /tmp/target)/release/nim-proxy" /app/nim-proxy && mkdir /app/data
+    && cp "target/$(cat /tmp/target)/release/nim-proxy" /app/nim-proxy
 
 FROM scratch
 # OCI image metadata so the image is self-describing. VERSION comes from the
 # release workflow (the git tag); "dev" for local builds.
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="nim-proxy" \
-      org.opencontainers.image.description="Rate-limit-aware OpenAI-compatible proxy for NVIDIA NIM with multi-key load balancing" \
+      org.opencontainers.image.description="Minimal headless OpenAI-compatible CLI gateway for NVIDIA NIM" \
       org.opencontainers.image.source="https://github.com/miztertea/nim-proxy" \
       org.opencontainers.image.url="https://github.com/miztertea/nim-proxy" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=build /app/nim-proxy /nim-proxy
-# Empty dir owned by the runtime user: a named volume mounted at /data
-# inherits this ownership on first use, so history can persist.
-COPY --from=build --chown=10001:10001 /app/data /data
-ENV DATA_DIR=/data
 USER 10001:10001
 EXPOSE 8000
-# The binary doubles as its own health probe (no shell/curl in scratch).
+# The binary doubles as its own health probe (no shell/curl in scratch). A
+# non-default --port must be mirrored here via a rebuilt HEALTHCHECK line.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=2s CMD ["/nim-proxy", "--health"]
 ENTRYPOINT ["/nim-proxy"]

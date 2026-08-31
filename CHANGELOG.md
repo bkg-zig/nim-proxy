@@ -5,39 +5,80 @@ All notable changes to nim-proxy are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-31
 
-### Fixed
+> **Breaking upgrade:** v0.7.0 transforms nim-proxy into a minimal, headless
+> CLI gateway. The dashboard, setup wizard, first-run claim flow, UI-managed
+> config store (`DATA_DIR/config.json`), operator accounts and sessions,
+> multi-key pool, metrics history, and Docker Compose files are gone: the
+> binary starts from command-line arguments alone. See
+> `knowledge/decisions/headless-cli-gateway.md` for the reasoning.
 
-- Installed locale definitions now jointly drive locale bootstrap, public and
-  operator catalog bytes, and route acceptance. Catalog URLs accept valid
-  canonicalizable spellings such as `en-us`; `en-XA` remains test-only.
-- Embedded invariant pages are assembled once per process. Login and setup
-  retain their catalog gate for JavaScript clients while exposing their native
-  server forms when JavaScript is unavailable. Native setup redirects into the
-  authenticated dashboard without minting a client secret it cannot display.
-- Settings retains the validated-model confirmation after successfully adding a
-  NIM API key. History diagnostics now report actual inferred counter resets.
-- Dashboard polling now distinguishes a render failure from a lost proxy
-  connection. Dynamic style application isolates rejected nodes, percentage
-  style keys remain bounded, publisher/client identity maps reject inherited
-  keys, and stacked-chart tooltips resolve catalog series ids like their
-  legends.
-- Streaming deadlines now finalize the bounded observer exactly once. Usage
-  measured before expiry remains measured; missing or explicit-null fields are
-  unavailable rather than invalid.
-- The Models finish-reason table includes the emitted `function_call` category,
-  so all six bounded finish-reason shares are represented.
-- Dashboard history rollups now release the config-store mutex after taking
-  their small configuration snapshot. Sampler append/fsync work runs on the
-  Tokio blocking pool and is joined before the next sample or shutdown.
-- Contributor and knowledge documentation now match the split presentation
-  layer, current locale/plural guards, and trusted-proxy boundary. The guide
-  checker validates local links across maintained repository documentation.
+### Added
+
+- **CLI-first startup.** `nim-proxy --nim-api-key nvapi-... --rpm 30 --port 8000`
+  is the entire deployment story. Flags: `--nim-api-key` (required),
+  `--rpm` (default 30, conservative vs. NVIDIA's ~40-RPM free tier),
+  `--host` (default `127.0.0.1`; `0.0.0.0` prints a warning and the banner
+  prints a usable `localhost` URL), `--port` (default 8000), `--base-url`
+  (default `https://integrate.api.nvidia.com`), `--help`, `--version`.
+  Invalid invocations exit 2 with a clear error before any server starts.
+- **Startup banner** on stdout with the OpenAI-compatible endpoint URL
+  (`http://127.0.0.1:8000/v1`), host, port, RPM limit, upstream-concurrency 1,
+  and upstream identity. Logs moved to stderr so stdout carries only the
+  banner. The NVIDIA key never appears in stdout, stderr, metrics, error
+  bodies, or panic paths.
+- **Strict single-flight upstream serialization** (`src/gate.rs`): at most
+  one NVIDIA request exists at any instant, granted strictly in FIFO arrival
+  order. The permit spans the request's whole upstream lifecycle — RPM wait,
+  send, 429/5xx retries, and the complete response (buffered body fully read,
+  or SSE stream fully terminated): `start(N+1) >= complete(N)` always holds.
+- **Disconnect-safe barrier.** A downstream client hanging up mid-stream no
+  longer frees the upstream slot early: the proxy drains the abandoned
+  upstream stream to its real termination (bounded by the stream-idle
+  cutoff) before the next request may start.
+- **Bounded graceful shutdown.** SIGINT/SIGTERM stops accepting new work,
+  drains in-flight requests for up to 30 seconds, then exits cleanly.
+  Queued-but-unstarted requests are abandoned — the queue is in-memory by
+  design.
+- New metrics: `nimproxy_singleflight_active` (0/1) and
+  `nimproxy_gate_depth` (queue length); `nimproxy_gate_wait_seconds`
+  histogram.
+- e2e suite rewritten around the gateway contract: FIFO order,
+  single-flight against a slow upstream, buffered and streaming
+  completion barriers, 30-RPM rolling-window enforcement (scaled window
+  plus a real-61s-window hold check), 429 retry cannot be bypassed,
+  Retry-After timing, 5xx ordering, client-disconnect drain, 100
+  concurrent clients, CLI validation, banner/no-key-leak sweep, and
+  graceful shutdown — all against the real binary driven through its CLI.
+
+### Changed
+
+- The local `/v1` endpoint is open: any bearer token (or none) is accepted
+  downstream, while the NVIDIA credential is applied upstream only.
+  Loopback-by-default binding keeps that safe; `--host 0.0.0.0` warns.
+- `max_inflight` (default 512) is unchanged and remains flood protection —
+  conceptually separate from the single-flight gate (one bounds local
+  memory, the other bounds upstream concurrency).
+- Metric names, label vocabularies, and the error envelope
+  (`{"error":{message,type,code}}`) are unchanged from v0.6.x.
+- The pool's 61-second rolling window and the dispatcher's FIFO admission
+  are unchanged; both now serve exactly one CLI-provided key.
+
+### Removed
+
+- Dashboard, presentation layer, settings API, setup wizard, login/sessions,
+  operator users, i18n catalog machinery, OpenAPI generation, metrics
+  history persistence, and the `DATA_DIR` store. Dependencies dropped:
+  `utoipa`, `dotenvy`, `hmac`, `sha2`, `subtle`, `getrandom`, `serde` (derive).
+- Docker Compose files. The scratch Dockerfile remains (optional, not
+  required): `ENTRYPOINT` is the binary, so `docker run … --nim-api-key …`
+  passes CLI arguments through unchanged.
 
 ## [0.6.6] - 2026-08-01
 
 > **Breaking upgrade:** v0.6.6 intentionally starts dashboard history over,
+
 > renames one Prometheus series, and removes the pricing contract. Back up the
 > data volume before upgrading.
 
@@ -678,7 +719,8 @@ Initial rate-limit-aware proxy.
 - **Distroless image**: a static musl binary shipped `FROM scratch` (~3.5 MB,
   TLS roots compiled in), running non-root with hardened compose defaults.
 
-[Unreleased]: https://github.com/miztertea/nim-proxy/compare/v0.6.6...HEAD
+[Unreleased]: https://github.com/miztertea/nim-proxy/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/miztertea/nim-proxy/compare/v0.6.6...v0.7.0
 [0.6.6]: https://github.com/miztertea/nim-proxy/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/miztertea/nim-proxy/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/miztertea/nim-proxy/compare/v0.6.3...v0.6.4

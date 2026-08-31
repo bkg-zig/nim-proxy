@@ -2,9 +2,11 @@
 
 ## Start here
 
-nim-proxy is a Rust proxy that makes NVIDIA NIM's free tier usable for agent
-harnesses by pacing requests to the per-key rate limit, load-balancing across
-keys, and keeping client connections alive while they wait.
+nim-proxy is a Rust gateway that makes NVIDIA NIM's free tier usable for
+agent harnesses: one headless binary, configured entirely by CLI arguments,
+pacing requests with a rolling-window RPM limit, strict FIFO
+single-flight upstream serialization (one NVIDIA request at a time, full
+response barrier), retries, and SSE heartbeats while clients wait.
 
 Before non-trivial work, read the applicable file in [`docs/plans/`](docs/plans/)
 completely. Then read [`knowledge/index.md`](knowledge/index.md) and search

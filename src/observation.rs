@@ -119,6 +119,13 @@ finish_reasons! {
 pub(crate) enum StreamOutcome {
     Completed,
     Deadline,
+    /// A downstream hang-up. The single-flight drain design means the proxy
+    /// itself always reads the upstream stream to its real termination
+    /// (see `proxy`), so a disconnected client still finalizes as
+    /// `Completed` — the upstream generation did finish and its usage is
+    /// real. This variant stays part of the classifier's contract and is
+    /// exercised by its own tests.
+    #[allow(dead_code)]
     Disconnected,
     Truncated,
 }
@@ -971,42 +978,28 @@ mod tests {
         assert_eq!(actual.finish_reasons[0].result, FinishResult::Unavailable);
     }
 
+    // The old `dashboard_finish_reason_fixture_covers_every_metric_label`
+    // test tied the finish-reason metric labels to the dashboard's FINISH
+    // table; both the dashboard and its label-parity check were retired with
+    // the headless pivot. The ALL list below keeps the label set total and
+    // visibly exhaustive.
+
     #[test]
-    fn dashboard_finish_reason_fixture_covers_every_metric_label() {
-        // Mutation caught: a bounded finish label reaches the metric recorder
-        // but silently disappears from the dashboard table.
-        let dashboard = include_str!("web/dashboard.js");
-        let catalog = include_str!("web/locales/en-US.json");
-        assert_finish_dashboard_labels(dashboard);
-
-        let missing = dashboard.replacen("['function_call',", "['missing',", 1);
-        assert!(
-            std::panic::catch_unwind(|| assert_finish_dashboard_labels(&missing)).is_err(),
-            "the dashboard-label assertion must reject an inverted fixture"
-        );
-        assert!(catalog.contains("dashboard.models.finish.function_call"));
-    }
-
-    fn assert_finish_dashboard_labels(dashboard: &str) {
-        let finish = dashboard
-            .split_once("const FINISH = [")
-            .and_then(|(_, tail)| tail.split_once("];"))
-            .map(|(declaration, _)| declaration)
-            .expect("dashboard FINISH declaration");
-        let mut actual = finish
-            .split("['")
-            .skip(1)
-            .map(|entry| entry.split_once("',").expect("FINISH label").0)
-            .collect::<Vec<_>>();
-        let mut expected = FinishReason::ALL
-            .iter()
-            .map(|reason| reason.metric_label())
-            .collect::<Vec<_>>();
-        actual.sort_unstable();
-        expected.sort_unstable();
+    fn finish_reason_labels_are_unique_and_nonempty() {
+        // `ALL` must enumerate every variant exactly once with a distinct,
+        // non-empty label — the bounded vocabulary every
+        // `nimproxy_finish_reason_total` label comes from.
+        let all = FinishReason::ALL;
+        let mut labels: Vec<_> = all.iter().map(|r| r.metric_label()).collect();
+        let total = labels.len();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), total, "labels must be distinct");
+        assert!(labels.iter().all(|l| !l.is_empty()));
         assert_eq!(
-            actual, expected,
-            "dashboard FINISH labels must exactly equal every emitted metric label"
+            FinishReason::ALL.len(),
+            6,
+            "finish_reasons! variants and ALL must agree"
         );
     }
 

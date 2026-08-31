@@ -27,11 +27,4 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "config_roundtrip"
-path = "fuzz_targets/config_roundtrip.rs"
-test = false
-doc = false
-bench = false
-
 [workspace]

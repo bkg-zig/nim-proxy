@@ -1,6 +1,6 @@
 [package]
 name = "nim-proxy"
-version = "0.6.6"
+version = "0.7.0"
 edition = "2021"
 description = "Rate-limit-aware OpenAI-compatible proxy for NVIDIA NIM with multi-key load balancing"
 license = "MIT"
@@ -22,8 +22,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip"] }
-# derive adds zero new crates: the proc-macro stack is already in the tree.
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
@@ -32,17 +30,6 @@ futures-util = "0.3"
 tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-dotenvy = "0.15"
-# Auth: HMAC-signed session cookies + constant-time secret comparison.
-hmac = "0.12"
-sha2 = "0.10"
-subtle = "2"
-getrandom = "0.2"
-# OpenAPI: the response types carry `ToSchema` and the handlers carry
-# `#[utoipa::path]`, so openapi.json is generated from the code that serves
-# the requests. Pinned exactly (project convention); no served UI — the
-# scalar/redoc crates pull JS from a CDN the dashboard CSP forbids.
-utoipa = "=5.5.0"
 
 [dev-dependencies]
 axum = "0.8"
@@ -51,26 +38,12 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde_json = "1"
 bytes = "1"
 futures-util = "0.3"
-# The e2e harness hashes client secrets when writing store fixtures.
-sha2 = "0.10"
 
-# PBKDF2 password hashing runs 600k HMAC-SHA256 iterations. At opt-level 0
-# every dev-build login (and the e2e auth suite) would take multiple seconds
-# — the generic HMAC glue monomorphizes into this crate, so the hashing
-# chain's own opt level isn't enough. Level 1 keeps debuginfo and fast
-# builds while making hashing near release speed.
+# PBKDF2 password hashing ran 600k HMAC-SHA256 iterations — removed with the
+# dashboard. These overrides kept dev-build hashing fast; retained (harmless,
+# tiny) for any future crypto on the hot paths.
 [profile.dev]
 opt-level = 1
-[profile.dev.package.sha2]
-opt-level = 3
-[profile.dev.package.hmac]
-opt-level = 3
-[profile.dev.package.digest]
-opt-level = 3
-[profile.dev.package.block-buffer]
-opt-level = 3
-[profile.dev.package.generic-array]
-opt-level = 3
 
 [profile.release]
 lto = true

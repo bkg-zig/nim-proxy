@@ -30,7 +30,22 @@ pub type PoolHandle = Arc<RwLock<Arc<Pool>>>;
 /// land inside the upstream's window even though it left ours. Load-tested at
 /// 100 concurrent clients: with 60s exactly, ~2% of requests tripped a strict
 /// upstream window; with the pad, zero. Costs ~1.6% peak throughput.
-const WINDOW: Duration = Duration::from_secs(61);
+///
+/// `NIMPROXY_WINDOW_SECS` is an undocumented test knob (same posture as the
+/// old `HISTORY_SAMPLE_SECS`): it lets the e2e suite exercise rolling-window
+/// boundary behavior in seconds instead of a minute. Production runs never
+/// set it and get the load-tested 61s constant.
+fn window() -> Duration {
+    static OVERRIDE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        std::env::var("NIMPROXY_WINDOW_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_secs(61))
+    })
+}
 
 /// A lane blueprint. Disabled specs become state carriers: held for their
 /// rate state, never granted.
@@ -141,12 +156,13 @@ impl Pool {
     /// Point-in-time per-lane view for the Settings key rows.
     pub fn lane_stats(&self) -> Vec<LaneStat> {
         let now = Instant::now();
+        let window = window();
         self.lanes[..self.active]
             .iter()
             .map(|l| {
                 let in_window = {
                     let sent = l.sent.lock().unwrap();
-                    sent.iter().filter(|t| now - **t < WINDOW).count()
+                    sent.iter().filter(|t| now - **t < window).count()
                 };
                 let cooldown_ms = l
                     .cooldown_until
@@ -172,8 +188,9 @@ impl Pool {
         if *lane.cooldown_until.lock().unwrap() > now {
             return None;
         }
+        let window = window();
         let mut sent = lane.sent.lock().unwrap();
-        while sent.front().is_some_and(|t| now - *t >= WINDOW) {
+        while sent.front().is_some_and(|t| now - *t >= window) {
             sent.pop_front();
         }
         if sent.len() < lane.rpm {
@@ -196,6 +213,7 @@ impl Pool {
     /// `prefer` (computed against a pool that has since shrunk) is ignored.
     pub fn reserve(&self, prefer: Option<usize>) -> Reservation {
         let now = Instant::now();
+        let window = window();
         if let Some(p) = prefer.filter(|&p| p < self.active) {
             if let Some(r) = self.try_take(p, now, true) {
                 return r;
@@ -203,11 +221,11 @@ impl Pool {
         }
 
         let mut ready: Vec<(usize, usize)> = Vec::new(); // (in-window load, lane)
-        let mut best_wait = WINDOW;
+        let mut best_wait = window;
         for (i, lane) in self.lanes[..self.active].iter().enumerate() {
             let cooldown = *lane.cooldown_until.lock().unwrap();
             let mut sent = lane.sent.lock().unwrap();
-            while sent.front().is_some_and(|t| now - *t >= WINDOW) {
+            while sent.front().is_some_and(|t| now - *t >= window) {
                 sent.pop_front();
             }
             let window_ready = if sent.len() < lane.rpm {
@@ -215,9 +233,9 @@ impl Pool {
             } else if lane.rpm == 0 {
                 // validate() forbids rpm 0, but a panic here would kill the
                 // dispatcher task and hang every request — never index in.
-                now + WINDOW
+                now + window
             } else {
-                sent[sent.len() - lane.rpm] + WINDOW
+                sent[sent.len() - lane.rpm] + window
             };
             let ready_at = window_ready.max(cooldown);
             if ready_at <= now {
@@ -286,7 +304,7 @@ mod tests {
         assert_eq!(take(&pool, None), 1);
         // Both lanes at their 1-per-minute cap: caller must wait ~60s.
         match pool.reserve(None) {
-            Reservation::Wait(w) => assert!(w > Duration::from_secs(55) && w <= WINDOW),
+            Reservation::Wait(w) => assert!(w > Duration::from_secs(55) && w <= window()),
             _ => panic!("expected Wait"),
         }
     }

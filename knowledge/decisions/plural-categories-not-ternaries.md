@@ -90,8 +90,9 @@ unreferenced, and the check would then demand their deletion. Writing
   locales whose category depends on the surface form.
 - The four composite dashboard runs that were deferred by the initial decision
   now use complete catalog messages and `PLURALS.select()`; no English suffix
-  ternary remains in `src/web/`. The current pseudolocale inventory is
-  [REMAINING.md](../../tests/fixtures/locales/REMAINING.md).
+  ternary remained in `src/web/`. The pseudolocale inventory referenced here
+  (`tests/fixtures/locales/REMAINING.md`) was removed with the dashboard in
+  the v0.7.0 headless pivot.
 - `check_i18n.py` now has a deliberately narrow `PLURAL_SUFFIX` guard. It
   rejects the historical `.length` and `lanes === 1 ? '' : 's'` shapes and its
   mutation fixture proves that check can fail. It is not a JavaScript grammar

@@ -6,6 +6,21 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-08-31] decision — headless CLI gateway (v0.7.0)
+
+The fork pivots to a minimal headless CLI gateway: one binary, CLI-only
+configuration (`--nim-api-key/--rpm/--host/--port/--base-url`), the endpoint
+URL printed on stdout at startup, and logs on stderr. A new single-flight
+gate serializes upstream work to exactly one NVIDIA request at a time in
+strict FIFO order, holding the permit across RPM waits, retries, and the
+complete response (buffered body or full SSE stream); client disconnects
+drain the abandoned stream before releasing the slot. The dashboard, config
+store, setup wizard, sessions, history, governor, multi-key pool, and
+compose files are removed (decision: `decisions/headless-cli-gateway.md`).
+Metric names and the error envelope are unchanged. Two undocumented test
+knobs (`NIMPROXY_WINDOW_SECS`, `NIMPROXY_SHUTDOWN_DRAIN_SECS`) let the e2e
+suite prove rolling-window and bounded-drain behavior in seconds.
+
 ## [2026-08-24] maintenance — reconcile governing documentation
 
 Contributor guidance now describes the split embedded presentation layer and

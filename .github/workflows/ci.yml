@@ -28,7 +28,6 @@ jobs:
       pull-requests: read
     outputs:
       stable: ${{ steps.filter.outputs.stable }}
-      presentation: ${{ steps.filter.outputs.presentation }}
       coverage: ${{ steps.filter.outputs.coverage }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -57,45 +56,6 @@ jobs:
               - '!Dockerfile'
               - '!.dockerignore'
               - '!docker-compose*.yml'
-              - '!src/web/**'
-              - '!scripts/render_check.js'
-              - '!scripts/formatter_fixture.js'
-              - '!scripts/check_i18n.py'
-              - '!scripts/locale_v1.py'
-              - '!scripts/gen_pseudolocale.py'
-              - '!tests/fixtures/locales/**'
-              - '!tests/fixtures/formatters-en-US.txt'
-            presentation:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!knowledge/**'
-              - '!.github/ISSUE_TEMPLATE/**'
-              - '!.github/CODEOWNERS'
-              - '!scripts/check_agent_guide.py'
-              - '!fuzz/**'
-              - '!deny.toml'
-              - '!.github/dependabot.yml'
-              - '!Cargo.toml'
-              - '!Cargo.lock'
-              - '!rust-toolchain.toml'
-              - '!Dockerfile'
-              - '!.dockerignore'
-              - '!docker-compose*.yml'
-              - '!src/dispatch.rs'
-              - '!src/governor.rs'
-              - '!src/history.rs'
-              - '!src/history/**'
-              - '!src/lib.rs'
-              - '!src/observation.rs'
-              - '!src/pool.rs'
-              - '!openapi.json'
-              - '!tests/e2e.rs'
-              - '!tests/openapi.rs'
-              - '!tests/support/**'
-              - '!tests/fixtures/api/**'
-              - '!tests/fixtures/history-v1/**'
-              - '!tests/fixtures/nim-observations/**'
             coverage:
               - '**'
               - '!**/*.md'
@@ -113,14 +73,6 @@ jobs:
               - '!Dockerfile'
               - '!.dockerignore'
               - '!docker-compose*.yml'
-              - '!src/web/**'
-              - '!scripts/render_check.js'
-              - '!scripts/formatter_fixture.js'
-              - '!scripts/check_i18n.py'
-              - '!scripts/locale_v1.py'
-              - '!scripts/gen_pseudolocale.py'
-              - '!tests/fixtures/locales/**'
-              - '!tests/fixtures/formatters-en-US.txt'
             docker:
               - '**'
               - '!**/*.md'
@@ -132,14 +84,6 @@ jobs:
               - '!fuzz/**'
               - '!deny.toml'
               - '!.github/dependabot.yml'
-              - '!src/web/**'
-              - '!scripts/render_check.js'
-              - '!scripts/formatter_fixture.js'
-              - '!scripts/check_i18n.py'
-              - '!scripts/locale_v1.py'
-              - '!scripts/gen_pseudolocale.py'
-              - '!tests/fixtures/locales/**'
-              - '!tests/fixtures/formatters-en-US.txt'
 
   check:
     name: fmt, clippy, tests
@@ -166,8 +110,7 @@ jobs:
           github.event_name != 'pull_request' ||
           github.base_ref == 'main' ||
           contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.stable == 'true' ||
-          needs.changes.outputs.presentation == 'true'
+          needs.changes.outputs.stable == 'true'
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -176,8 +119,7 @@ jobs:
           github.event_name != 'pull_request' ||
           github.base_ref == 'main' ||
           contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.stable == 'true' ||
-          needs.changes.outputs.presentation == 'true'
+          needs.changes.outputs.stable == 'true'
       - name: Format
         if: >-
           github.event_name != 'pull_request' ||
@@ -203,143 +145,6 @@ jobs:
       # fail on any difference, so the committed spec cannot drift from the
       # code that serves the requests — `cargo test` alone would catch it, but
       # only if the contributor remembered to commit the regenerated file.
-      - name: OpenAPI spec is in sync
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.stable == 'true'
-        run: |
-          UPDATE_OPENAPI=1 cargo test --test openapi
-          git diff --exit-code -- openapi.json \
-            || { echo "::error::openapi.json is stale — run 'UPDATE_OPENAPI=1 cargo test --test openapi' and commit it"; exit 1; }
-      - name: Rust-owned UI fixtures are in sync
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.stable == 'true'
-        # Fixture bytes are serialized from the production response types. The
-        # update command is deliberate; a diff after it catches an omitted
-        # generated fixture in the same way the OpenAPI gate catches its spec.
-        run: |
-          UPDATE_UI_FIXTURES=1 cargo test api::tests::ui_fixtures --lib
-          git add --intent-to-add -- tests/fixtures/ui
-          git diff --exit-code -- tests/fixtures/ui \
-            || { echo "::error::UI fixtures are stale — run 'UPDATE_UI_FIXTURES=1 cargo test api::tests::ui_fixtures --lib' and commit tests/fixtures/ui"; exit 1; }
-      - name: Embedded presentation source boundaries and JS syntax
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # cargo test asserts on served HTML text and never parses the
-        # JavaScript. These checks also keep executable/style source external
-        # to HTML and reject every external-origin dependency.
-        run: |
-          node scripts/render_check.js --asset-selftest
-          node scripts/render_check.js --assets-only
-          node scripts/render_check.js --served-page-selftest
-          node scripts/render_check.js --catalog-startup-selftest
-          node scripts/render_check.js --syntax-selftest
-          node scripts/render_check.js --syntax-only
-          node scripts/render_check.js --interaction-selftest
-      - name: Formatter output is unchanged
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # Pins number/duration/date/percent output against a golden fixture.
-        # TZ and locale are fixed because these formatters read the catalog
-        # locale and the system zone; an unpinned run encodes the runner.
-        env:
-          TZ: UTC
-          LC_ALL: en_US.UTF-8
-        run: node scripts/formatter_fixture.js --check
-      - name: i18n lint self-test
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # Same reason as locale-v1's below, and this one was missing while the
-        # lint shipped three separate blind spots. Every case here is a real
-        # false negative that once reported `i18n OK`.
-        run: python3 scripts/check_i18n.py --selftest
-      - name: i18n catalog and untagged-string lint
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        run: python3 scripts/check_i18n.py
-      - name: locale-v1 self-test
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # Proves every check can fail before trusting any of them.
-        run: python3 scripts/locale_v1.py --selftest
-      - name: locale-v1 validation
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        run: |
-          python3 scripts/locale_v1.py --update-public
-          git diff --exit-code -- tests/fixtures/locales/public-en-US.json \
-            || { echo "::error::public-en-US.json is stale — run 'python3 scripts/locale_v1.py --update-public' and commit it"; exit 1; }
-          python3 scripts/locale_v1.py --all
-      - name: Pseudolocale is current
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # en-XA is generated, never hand-edited; a stale one silently stops
-        # testing the strings that changed.
-        run: python3 scripts/gen_pseudolocale.py --check
-      - name: Dashboard renders and survives being driven
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.base_ref == 'main' ||
-          contains(github.event.pull_request.labels.*.name, 'ci:full') ||
-          needs.changes.outputs.presentation == 'true'
-        # `node --check` above proves the scripts parse; this starts the real
-        # binary and requests its served page/assets, replays captured API
-        # payloads through CDP, walks every tab, and hovers every chart. Any
-        # missing/external initial asset or uncaught page error fails. The
-        # bug that motivated it threw on hover and made a healthy proxy report
-        # "Disconnected" — green on every other check in this job.
-        # --escape-probe additionally catches a render helper escaping a
-        # catalog value that was already escaped at load, which is invisible
-        # in English and in en-XA.
-        # Both embedded pages. setup.html was proved by hand three separate
-        # times and the gap written up as "known" each time, which is more work
-        # than one committed check and leaves nothing behind.
-        run: |
-          node scripts/render_check.js
-          node scripts/render_check.js --all-states
-          node scripts/render_check.js --escape-probe
-          node scripts/render_check.js --page setup
-          node scripts/render_check.js --page setup --escape-probe
-          node scripts/render_check.js --page login
-          node scripts/render_check.js --page dashboard --startup-probe bootstrap-failure
-          node scripts/render_check.js --page dashboard --startup-probe delayed-catalog
-          node scripts/render_check.js --page setup --startup-probe catalog-failure
-          node scripts/render_check.js --page setup --startup-probe delayed-catalog
-          node scripts/render_check.js --page login --startup-probe malformed-catalog
-          node scripts/render_check.js --page login --startup-probe delayed-catalog
-          node scripts/render_check.js --page dashboard --startup-probe css-failure
-          node scripts/render_check.js --page setup --startup-probe css-failure
-          node scripts/render_check.js --page login --startup-probe css-failure
-          node scripts/render_check.js --page dashboard --startup-probe app-script-failure
-          node scripts/render_check.js --page dashboard --startup-probe locale-precedence
-          node scripts/render_check.js --page dashboard --startup-probe locale-precedence --precedence-case default
-          node scripts/render_check.js --cleanup-selftest
 
   coverage:
     name: coverage
@@ -562,16 +367,19 @@ jobs:
           cache-to: type=gha,mode=max,scope=ci
       - name: Smoke test image
         run: |
-          # A fresh container boots into setup-required mode (no env config
-          # since v0.6.0); /health is public regardless, and the built-in
-          # HEALTHCHECK must go healthy on it.
-          docker run -d --name smoke -p 8000:8000 nim-proxy:ci
+          # The container forwards CLI arguments to the binary; a dummy key
+          # boots the headless gateway, /health must answer, and the
+          # built-in HEALTHCHECK must go healthy.
+          docker run -d --name smoke -p 8000:8000 nim-proxy:ci \
+            --nim-api-key nvapi-ci-smoke-key-not-real --rpm 30
           ok=0
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then ok=1; break; fi
             sleep 1
           done
           [ "$ok" = 1 ] || { docker logs smoke; exit 1; }
+          # Startup banner must print the OpenAI-compatible endpoint.
+          docker logs smoke | grep -F "http://localhost:8000/v1"
           # HEALTHCHECK inside the container must also pass.
           for _ in $(seq 1 30); do
             s=$(docker inspect -f '{{.State.Health.Status}}' smoke)

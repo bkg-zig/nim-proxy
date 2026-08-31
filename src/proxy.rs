@@ -1,10 +1,30 @@
-//! Request handling: strict pass-through to NIM with three additions the
-//! upstream doesn't give us — per-key rate-limit pacing, retry on 429/5xx,
-//! and SSE comment heartbeats so agent harnesses (OpenCode etc.) keep the
-//! connection open instead of aborting while we wait for a slot. Every
-//! request is measured on the way through (see README for the metric list).
+//! Request handling: strict pass-through to NIM with the guarantees the
+//! upstream doesn't give us — strict FIFO single-flight serialization (one
+//! NVIDIA request at a time, complete-response barrier), per-key
+//! rolling-window rate pacing, retry on 429/5xx, and SSE comment heartbeats
+//! so agent harnesses keep the connection open instead of aborting while we
+//! wait for our turn. Every request is measured on the way through (see
+//! README for the metric list).
+//!
+//! Ordering model (the gateway contract):
+//!
+//! * **FIFO** — the single-flight gate grants its one permit strictly in
+//!   arrival order; a later request never reaches NVIDIA before an earlier
+//!   one (upstream start order == queue order).
+//! * **Single-flight** — at most one upstream request exists at any instant.
+//! * **Complete-response barrier** — the permit is held for the request's
+//!   entire upstream lifecycle: RPM wait, send, any retries, and the FULL
+//!   response (buffered body completely read, or SSE stream completely
+//!   terminated). `start(N+1) >= complete(N)` always holds.
+//! * **Retries stay in lifecycle** — a 429/5xx retry re-reserves an RPM slot
+//!   while still holding the permit, so a retry can never let a queued
+//!   request overtake the retrying one.
+//! * **Client disconnect** — when the downstream client hangs up mid-stream,
+//!   the proxy keeps reading the upstream stream to its actual termination
+//!   (discarding output) before releasing the permit: the next request
+//!   provably cannot start while the aborted client's upstream work is still
+//!   running. A stalled upstream is bounded by `stream_idle`.
 
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -19,7 +39,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::dispatch::Slot;
-use crate::governor::{self, ModelPermit};
+use crate::gate::Permit;
 use crate::observation::{
     observe_buffered, usage_observation_metrics, FinishResult, Observation, ResponseObservations,
     SseObserver, StreamOutcome,
@@ -145,11 +165,10 @@ async fn reserve_slot(
     state: &AppState,
     heartbeat: Duration,
     deadline: Instant,
-    prefer: Option<usize>,
     mut on_wait: impl FnMut() -> bool,
 ) -> Option<Slot> {
     let queued = Instant::now();
-    let mut rx = state.dispatch.acquire(deadline, prefer);
+    let mut rx = state.dispatch.acquire(deadline, None);
     loop {
         tokio::select! {
             slot = &mut rx => {
@@ -169,41 +188,27 @@ async fn reserve_slot(
     }
 }
 
-/// Wait for a model-pressure permit (the governor's worker-concurrency gate),
-/// heartbeating so streaming callers keep their client alive. `Ok(None)`
-/// means the request isn't gated (governor off, non-generation path, or no
-/// model to scope by); `Err(())` means the deadline passed or the client left.
-async fn acquire_model_permit(
+/// Join the single-flight FIFO queue for the upstream serialization permit,
+/// heartbeating so streaming callers keep their client alive while they wait
+/// their turn. `None` means the patience deadline passed or the client left —
+/// in both cases nothing is upstream, so abandoning is barrier-safe.
+async fn acquire_gate(
     state: &AppState,
-    cfg: &Config,
-    ctx: &Ctx,
+    heartbeat: Duration,
     deadline: Instant,
     mut on_wait: impl FnMut() -> bool,
-) -> Result<Option<ModelPermit>, ()> {
-    let gated = cfg.governor.enabled
-        && ctx.model != "none"
-        && matches!(
-            ctx.path.as_str(),
-            "/v1/chat/completions" | "/v1/completions"
-        );
-    if !gated {
-        return Ok(None);
-    }
-    let pinned = cfg.governor.overrides.get(&ctx.model).copied();
-    let mut next_heartbeat = Instant::now() + cfg.heartbeat;
+) -> Option<Permit> {
+    let mut acquire = Box::pin(state.gate.acquire(deadline));
     loop {
-        if let Some(p) = state.governor.admit(&ctx.model, pinned) {
-            return Ok(Some(p));
-        }
-        if Instant::now() + governor::POLL > deadline {
-            return Err(());
-        }
-        tokio::time::sleep(governor::POLL).await;
-        if Instant::now() >= next_heartbeat {
-            if !on_wait() {
-                return Err(());
+        tokio::select! {
+            permit = &mut acquire => {
+                return permit;
             }
-            next_heartbeat = Instant::now() + cfg.heartbeat;
+            _ = tokio::time::sleep(heartbeat) => {
+                if !on_wait() {
+                    return None;
+                }
+            }
         }
     }
 }
@@ -426,7 +431,9 @@ fn upstream_request(
     req
 }
 
-/// Single entry point for every /v1/* call.
+/// Single entry point for every /v1/* call. The local endpoint is open
+/// (loopback by default): any bearer token — or none — is accepted; the
+/// NVIDIA credential lives only upstream and never in any response.
 pub async fn handle(
     State(state): State<Arc<AppState>>,
     method: Method,
@@ -435,21 +442,14 @@ pub async fn handle(
     body: Bytes,
 ) -> Response {
     let accepted = Instant::now();
-    // Fail closed until first-time setup completes: nothing proxies, and the
-    // error tells the operator exactly why.
-    if state
-        .setup_required
-        .load(std::sync::atomic::Ordering::SeqCst)
-    {
-        return crate::auth::setup_required_json();
-    }
 
-    // One consistent config view for this request's whole lifetime; a
-    // concurrent settings save affects only requests that arrive after it.
+    // One consistent config view for this request's whole lifetime.
     let cfg = state.cfg();
 
     // Shed load past the in-flight cap so a connection flood can't grow the
-    // queue unbounded. A guard decrements on every exit path; the streaming
+    // queue unbounded. This is flood protection, deliberately separate from
+    // the single-flight gate: the gate serializes upstream work, this bounds
+    // local memory. A guard decrements on every exit path; the streaming
     // path moves it into its spawned task so a live stream keeps occupying
     // its slot until the stream actually ends.
     let inflight = state
@@ -469,34 +469,7 @@ pub async fn handle(
         return overloaded(cfg.max_inflight);
     }
 
-    // Client auth: open mode admits everyone as "local"; keyed mode hashes
-    // the presented bearer and compares against the stored SHA-256 digests
-    // (the store never holds a usable token). Comparisons are constant-time.
-    let client = match &cfg.clients {
-        None => "local".to_owned(),
-        Some(clients) => {
-            let token = headers
-                .get(header::AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.strip_prefix("Bearer "))
-                .unwrap_or("");
-            let digest = crate::auth::sha256_hex(token);
-            let mut matched = None;
-            for (stored_digest, name) in clients {
-                if crate::auth::ct_eq(&digest, stored_digest) {
-                    matched = Some(name.clone());
-                }
-            }
-            match matched {
-                Some(name) => name,
-                None => {
-                    counter!("nimproxy_unauthorized_total").increment(1);
-                    tokio::time::sleep(Duration::from_millis(250)).await;
-                    return unauthorized();
-                }
-            }
-        }
-    };
+    let client = "local".to_owned();
 
     let request_deadline = match parse_request_deadline(&headers, accepted) {
         Ok(deadline) => deadline,
@@ -544,9 +517,6 @@ pub async fn handle(
         .as_ref()
         .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
         .unwrap_or(false);
-    let prefer = parsed
-        .as_ref()
-        .and_then(|v| affinity(v, state.pool().len()));
 
     // Fingerprint what the harness asked for (generation endpoints only).
     if ctx.path == "/v1/chat/completions" || ctx.path == "/v1/completions" {
@@ -586,7 +556,6 @@ pub async fn handle(
             path_query,
             headers,
             body,
-            prefer,
             fallback,
             inflight_guard,
             request_deadline,
@@ -603,7 +572,6 @@ pub async fn handle(
             path_query,
             headers,
             body,
-            prefer,
             wait_deadline,
         );
         if let Some(deadline) = request_deadline {
@@ -620,25 +588,11 @@ pub async fn handle(
     }
 }
 
-/// Sticky-lane hint: hash the conversation's identity (model + the first two
-/// messages — typically the system prompt and first user turn, stable across
-/// every turn of an agent session) so a conversation keeps hitting the same key
-/// while it has capacity, keeping any upstream prefix cache warm. Purely an
-/// optimization; correctness never depends on which key serves a request.
-fn affinity(body: &serde_json::Value, lanes: usize) -> Option<usize> {
-    let messages = body.get("messages")?.as_array()?;
-    let mut h = DefaultHasher::new();
-    body.get("model")
-        .and_then(|m| m.as_str())
-        .unwrap_or("")
-        .hash(&mut h);
-    for msg in messages.iter().take(2) {
-        msg.to_string().hash(&mut h);
-    }
-    Some((h.finish() % lanes as u64) as usize)
-}
-
 /// Non-streaming: pace, retry, and return the upstream response verbatim.
+/// The single-flight permit is the FIRST binding in this scope, so it drops
+/// LAST — after `relay` has read the complete upstream body (and after any
+/// response object held in the retry loop). The next queued request cannot
+/// reach NVIDIA until this request's upstream lifecycle is entirely over.
 #[allow(clippy::too_many_arguments)]
 async fn buffered(
     state: Arc<AppState>,
@@ -648,21 +602,21 @@ async fn buffered(
     path_query: String,
     headers: HeaderMap,
     body: Bytes,
-    prefer: Option<usize>,
     deadline: Instant,
 ) -> Response {
     let _active = crate::dispatch::scopeguard(|| gauge!("nimproxy_active_requests").decrement(1.0));
     gauge!("nimproxy_active_requests").increment(1.0);
+
+    // Take our turn in the FIFO before anything upstream can happen. The
+    // permit spans every retry below: a 429/5xx backoff is part of THIS
+    // request's lifecycle, so later requests keep waiting.
+    let Some(_permit) = state.gate.acquire(deadline).await else {
+        record_request(&ctx, "504");
+        return gateway_timeout(&cfg, state.pool().len());
+    };
+
     loop {
-        // Two admission gates: a model-pressure permit (worker concurrency,
-        // held through the whole upstream exchange — dropped on every exit
-        // from this iteration), then an RPM slot.
-        let Ok(_permit) = acquire_model_permit(&state, &cfg, &ctx, deadline, || true).await else {
-            record_request(&ctx, "504");
-            return gateway_timeout(&cfg, state.pool().len());
-        };
-        let Some(slot) = reserve_slot(&state, cfg.heartbeat, deadline, prefer, || true).await
-        else {
+        let Some(slot) = reserve_slot(&state, cfg.heartbeat, deadline, || true).await else {
             record_request(&ctx, "504");
             return gateway_timeout(&cfg, state.pool().len());
         };
@@ -692,16 +646,6 @@ async fn buffered(
         if retryable(resp.status()) && Instant::now() < deadline {
             let status = resp.status();
             let backoff = backoff_for(&resp);
-            // Sniff the error body: worker exhaustion is model-scoped (shared
-            // across every key), so cooling down the lane would just burn healthy
-            // key capacity on a failover that cannot help.
-            let detail = resp.text().await.unwrap_or_default();
-            if governor::is_worker_exhausted(&detail) {
-                state
-                    .governor
-                    .note_exhausted(&ctx.model, cfg.governor.overrides.get(&ctx.model).copied());
-                continue; // permit drops here; re-admission waits out the drain
-            }
             tracing::info!(lane = slot.lane, %status, ?backoff, "lane in cooldown, retrying");
             enter_cooldown(&slot, status.as_str(), backoff);
             continue;
@@ -709,13 +653,22 @@ async fn buffered(
         histogram!("nimproxy_upstream_seconds", "model" => ctx.model.clone())
             .record(sent_at.elapsed().as_secs_f64());
         record_request(&ctx, resp.status().as_str());
+        // `relay` awaits the complete upstream body; only then does this
+        // function return and drop the permit.
         return relay(resp, &ctx).await;
     }
 }
 
 /// Streaming: commit to a 200 SSE response immediately and emit `: heartbeat`
-/// comment lines (ignored by every OpenAI SSE client) while we wait for a
-/// slot or ride out 429/5xx, then pipe the upstream stream through.
+/// comment lines (ignored by every OpenAI SSE client) while we wait for our
+/// single-flight turn or an RPM slot, then pipe the upstream stream through.
+///
+/// The permit is the FIRST binding inside the spawned task's work scope so
+/// it is dropped LAST: the upstream stream (and every response object) is
+/// released before the next request may start. When the downstream client
+/// hangs up mid-stream the task keeps draining the upstream stream to its
+/// real termination before returning — the barrier holds even for abandoned
+/// clients.
 #[allow(clippy::too_many_arguments)]
 fn streaming(
     state: Arc<AppState>,
@@ -725,7 +678,6 @@ fn streaming(
     path_query: String,
     headers: HeaderMap,
     mut body: Bytes,
-    prefer: Option<usize>,
     mut fallback: Option<Bytes>,
     inflight_guard: impl Send + 'static,
     request_deadline: Option<RequestDeadline>,
@@ -754,26 +706,30 @@ fn streaming(
                 record_request(&ctx, "disconnect");
                 return;
             }
+
+            // Our single-flight turn, heartbeating while queued. Nothing is
+            // upstream yet, so a client hang-up here can abandon safely.
+            let Some(_permit) = acquire_gate(&state, cfg.heartbeat, deadline, || {
+                tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
+                    .is_ok()
+            })
+            .await
+            else {
+                record_request(&ctx, "504");
+                let _ = tx
+                    .send(Ok(sse_error(
+                        "proxy timed out waiting for an upstream slot",
+                    )))
+                    .await;
+                return;
+            };
+
             loop {
-                // Model-pressure permit first (worker concurrency), then an RPM
-                // slot — both heartbeating so the harness doesn't hang up. The
-                // permit spans the whole upstream exchange and drops on every
-                // exit from this iteration.
-                let Ok(_permit) = acquire_model_permit(&state, &cfg, &ctx, deadline, || {
-                    tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
-                        .is_ok()
-                })
-                .await
-                else {
-                    record_request(&ctx, "504");
-                    let _ = tx
-                        .send(Ok(sse_error(
-                            "proxy timed out waiting for an upstream slot",
-                        )))
-                        .await;
-                    return;
-                };
-                let slot = reserve_slot(&state, cfg.heartbeat, deadline, prefer, || {
+                // RPM slot — heartbeating so the harness doesn't hang up.
+                // Every iteration of this loop (including retries) runs
+                // while still holding `_permit`: retries are part of this
+                // request's FIFO lifecycle.
+                let slot = reserve_slot(&state, cfg.heartbeat, deadline, || {
                     tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
                         .is_ok()
                 })
@@ -828,18 +784,8 @@ fn streaming(
                     }
                     let status = resp.status();
                     let backoff = backoff_for(&resp);
-                    // Worker exhaustion is model-scoped: back off the model via
-                    // the governor, never the lane (see `buffered`).
-                    let detail = resp.text().await.unwrap_or_default();
-                    if governor::is_worker_exhausted(&detail) {
-                        state.governor.note_exhausted(
-                            &ctx.model,
-                            cfg.governor.overrides.get(&ctx.model).copied(),
-                        );
-                    } else {
-                        tracing::info!(lane = slot.lane, %status, ?backoff, "lane in cooldown, retrying");
-                        enter_cooldown(&slot, status.as_str(), backoff);
-                    }
+                    tracing::info!(lane = slot.lane, %status, ?backoff, "lane in cooldown, retrying");
+                    enter_cooldown(&slot, status.as_str(), backoff);
                     if !send(": retrying\n\n").await {
                         record_request(&ctx, "disconnect");
                         return;
@@ -863,13 +809,13 @@ fn streaming(
                 *observer.lock().unwrap() = Some(SseObserver::default());
                 let mut first_chunk: Option<Instant> = None;
                 let mut chunks = resp.bytes_stream();
+                // Once the client is gone we stop forwarding but KEEP
+                // reading upstream to its termination: the permit may only
+                // drop after the upstream operation is actually over.
+                let mut client_gone = false;
                 loop {
-                    // Two ways out of a blocked upstream read: the stall cutoff
-                    // (a stalled upstream would otherwise hold the client
-                    // forever), and the client hanging up (`tx.closed()`) — which
-                    // must free the in-flight slot promptly, not at the cutoff
-                    // (and with stream_idle 0 there is no cutoff: a hung upstream
-                    // would pin the slot until restart).
+                    // A stalled upstream would otherwise hold the permit
+                    // forever; the stream-idle cutoff bounds the drain.
                     let upstream_read = async {
                         if cfg.stream_idle.is_zero() {
                             Ok(chunks.next().await)
@@ -877,50 +823,45 @@ fn streaming(
                             tokio::time::timeout(cfg.stream_idle, chunks.next()).await
                         }
                     };
-                    let next = tokio::select! {
-                        _ = tx.closed() => {
-                            finalize_sse_observer(&ctx, &observer, StreamOutcome::Disconnected);
-                            record_request(&ctx, "disconnect");
+                    match upstream_read.await {
+                        Err(_stalled) => {
+                            finalize_sse_observer(&ctx, &observer, StreamOutcome::Truncated);
+                            tracing::warn!(model = %ctx.model, idle = ?cfg.stream_idle, "upstream stream stalled");
+                            record_request(&ctx, "stall");
+                            let _ = tx.send(Ok(sse_error("upstream stream stalled"))).await;
                             return;
                         }
-                        read = upstream_read => match read {
-                            Ok(n) => n,
-                            Err(_) => {
+                        Ok(None) => break, // upstream stream terminated
+                        Ok(Some(chunk)) => match chunk {
+                            Ok(b) => {
+                                if first_chunk.is_none() {
+                                    first_chunk = Some(Instant::now());
+                                    histogram!("nimproxy_ttft_seconds", "model" => ctx.model.clone())
+                                        .record(sent_at.elapsed().as_secs_f64());
+                                }
+                                observer
+                                    .lock()
+                                    .unwrap()
+                                    .as_mut()
+                                    .expect("stream observer initialized")
+                                    .push(&b);
+                                if !client_gone && tx.send(Ok(b)).await.is_err() {
+                                    // Client hung up mid-stream: switch to
+                                    // draining. The upstream generation is still
+                                    // consuming NVIDIA resources and the barrier
+                                    // forbids releasing the permit while it runs.
+                                    tracing::info!("client disconnected; draining upstream stream");
+                                    client_gone = true;
+                                }
+                            }
+                            Err(e) => {
                                 finalize_sse_observer(&ctx, &observer, StreamOutcome::Truncated);
-                                tracing::warn!(model = %ctx.model, idle = ?cfg.stream_idle, "upstream stream stalled");
-                                record_request(&ctx, "stall");
-                                let _ = tx.send(Ok(sse_error("upstream stream stalled"))).await;
+                                tracing::warn!(error = %e, "upstream stream broke mid-response");
+                                record_request(&ctx, "stream_error");
+                                let _ = tx.send(Ok(sse_error("upstream stream interrupted"))).await;
                                 return;
                             }
-                        }
-                    };
-                    let Some(chunk) = next else { break };
-                    match chunk {
-                        Ok(b) => {
-                            if first_chunk.is_none() {
-                                first_chunk = Some(Instant::now());
-                                histogram!("nimproxy_ttft_seconds", "model" => ctx.model.clone())
-                                    .record(sent_at.elapsed().as_secs_f64());
-                            }
-                            observer
-                                .lock()
-                                .unwrap()
-                                .as_mut()
-                                .expect("stream observer initialized")
-                                .push(&b);
-                            if tx.send(Ok(b)).await.is_err() {
-                                finalize_sse_observer(&ctx, &observer, StreamOutcome::Disconnected);
-                                record_request(&ctx, "disconnect");
-                                return; // client hung up
-                            }
-                        }
-                        Err(e) => {
-                            finalize_sse_observer(&ctx, &observer, StreamOutcome::Truncated);
-                            tracing::warn!(error = %e, "upstream stream broke mid-response");
-                            record_request(&ctx, "stream_error");
-                            let _ = tx.send(Ok(sse_error("upstream stream interrupted"))).await;
-                            return;
-                        }
+                        },
                     }
                 }
 
@@ -929,7 +870,7 @@ fn streaming(
                     let gen_secs = first.elapsed().as_secs_f64();
                     if gen_secs > 0.1 && c > 0 {
                         histogram!("nimproxy_tokens_per_second", "model" => ctx.model.clone(), "source" => source)
-                        .record(c as f64 / gen_secs);
+                            .record(c as f64 / gen_secs);
                         // Mean inter-token latency (time-per-output-token).
                         histogram!("nimproxy_tpot_seconds", "model" => ctx.model.clone())
                             .record(gen_secs / c as f64);
@@ -939,7 +880,7 @@ fn streaming(
                 // path (which records upstream_seconds directly).
                 histogram!("nimproxy_upstream_seconds", "model" => ctx.model.clone())
                     .record(sent_at.elapsed().as_secs_f64());
-                record_request(&ctx, "200");
+                record_request(&ctx, if client_gone { "disconnect" } else { "200" });
                 return;
             }
         };
@@ -970,8 +911,9 @@ fn streaming(
 }
 
 /// /v1/models, cached so harness catalog polls cost zero rate budget. The
-/// lock is held across the refresh so concurrent misses make one upstream
-/// call (followers see the fresh cache when they get the lock).
+/// refresh (when it does happen) is an upstream request like any other: it
+/// takes the single-flight permit and an RPM slot, and holds both until the
+/// catalog body has been fully read.
 async fn models(state: Arc<AppState>, cfg: Arc<Config>) -> Response {
     let mut cache = state.models_cache.lock().await;
     if let Some((at, body)) = cache.as_ref() {
@@ -980,7 +922,10 @@ async fn models(state: Arc<AppState>, cfg: Arc<Config>) -> Response {
         }
     }
     let deadline = Instant::now() + Duration::from_secs(30);
-    let Some(slot) = reserve_slot(&state, cfg.heartbeat, deadline, None, || true).await else {
+    let Some(_permit) = state.gate.acquire(deadline).await else {
+        return gateway_timeout(&cfg, state.pool().len());
+    };
+    let Some(slot) = reserve_slot(&state, cfg.heartbeat, deadline, || true).await else {
         return gateway_timeout(&cfg, state.pool().len());
     };
     match fetch_models(&state.http, &cfg.base_url, &slot.key).await {
@@ -1005,9 +950,7 @@ async fn models(state: Arc<AppState>, cfg: Arc<Config>) -> Response {
     }
 }
 
-/// The raw model-catalog fetch with an explicit key — shared by the cached
-/// `/v1/models` path above and the setup wizard's key-validation probe
-/// (which must bypass both the pool and the cache).
+/// The raw model-catalog fetch with an explicit key.
 pub async fn fetch_models(
     http: &reqwest::Client,
     base_url: &str,
@@ -1020,7 +963,8 @@ pub async fn fetch_models(
 }
 
 /// Return an upstream response to the client as-is, harvesting the `usage`
-/// object for token accounting on the way past.
+/// object for token accounting on the way past. The full body is awaited —
+/// the caller's single-flight permit stays occupied until this returns.
 async fn relay(resp: reqwest::Response, ctx: &Ctx) -> Response {
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let content_type = resp
@@ -1073,19 +1017,6 @@ fn json_response(status: StatusCode, body: Bytes) -> Response {
         .unwrap()
 }
 
-fn unauthorized() -> Response {
-    let body = proxy_error_json(
-        "unauthorized",
-        "missing or invalid proxy API key (Authorization: Bearer ...)",
-    );
-    (
-        StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, "Bearer")],
-        axum::Json(body),
-    )
-        .into_response()
-}
-
 fn invalid_deadline() -> Response {
     let body = proxy_error_json(
         "invalid_deadline",
@@ -1121,7 +1052,7 @@ fn gateway_timeout(cfg: &Config, pool_len: usize) -> Response {
     let body = proxy_error_json(
         "rate_limited",
         format!(
-            "no upstream slot became available within {}s (all {} keys saturated)",
+            "no upstream slot became available within {}s ({} key(s) saturated)",
             cfg.max_wait.as_secs(),
             pool_len
         ),
