@@ -25,6 +25,24 @@ mod pool;
 mod proxy;
 mod routes;
 
+/// Fuzzing-only re-export surface: the targets under `fuzz/` call
+/// `nim_proxy::fuzz_proxy::…`, while the real items stay private inside
+/// `proxy` (see `proxy::fuzz`). `--cfg fuzzing` is set only by cargo-fuzz,
+/// so normal builds never even compile this module.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzz_proxy {
+    pub use crate::proxy::fuzz::{sanitize_label, sse_scan};
+
+    #[test]
+    fn re_exported_paths_match_the_fuzz_targets() {
+        // The exact paths fuzz_targets/{sse_scan,sanitize_label}.rs call;
+        // compiles and runs only under cargo-fuzz's --cfg fuzzing.
+        sse_scan(b"data: {\"choices\":[]}\n\ndata: [DONE]\n\n");
+        sanitize_label(b"injection\"}attempt\x1b[31m");
+    }
+}
+
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
