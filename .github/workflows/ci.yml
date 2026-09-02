@@ -382,8 +382,10 @@ jobs:
           # default --host is 127.0.0.1, so the banner prints that URL; a
           # wildcard bind would show localhost instead — accept both.
           docker logs smoke | grep -F -e "http://127.0.0.1:8000/v1" -e "http://localhost:8000/v1"
-          # HEALTHCHECK inside the container must also pass.
-          for _ in $(seq 1 30); do
+          # HEALTHCHECK inside the container must also pass. Docker runs its
+          # first probe `interval` (30s) after start, so the wait budget must
+          # comfortably exceed one full interval — 90s it is.
+          for _ in $(seq 1 90); do
             s=$(docker inspect -f '{{.State.Health.Status}}' smoke)
             [ "$s" = healthy ] && exit 0
             sleep 1
