@@ -134,6 +134,15 @@ Notes:
   same host, start with `--host 0.0.0.0` (the banner warns: only on trusted
   networks — anyone who can reach the port can spend your quota) and point
   the agent at `http://<host-ip>:8000/v1`.
+- The same applies **inside Docker**: `-p 8000:8000` publishes the port
+  through the container's network interface, so a loopback bind is
+  unreachable from outside the container — run the image with
+  `--host 0.0.0.0`:
+
+  ```sh
+  docker run -p 8000:8000 ghcr.io/katesean/nim-proxy:0.7.1 \
+    --nim-api-key "nvapi-..." --rpm 30 --host 0.0.0.0
+  ```
 
 ---
 
@@ -560,6 +569,13 @@ pick one; the tool exits 2 with an explanation.
 **Port already in use.** `nim-proxy cannot start: cannot listen on
 <host>:<port>…` — pass a different `--port` or stop the other listener. The
 error appears before any server starts.
+
+**Running in Docker and nothing can connect.** The default `--host 127.0.0.1`
+binds the container's own loopback, which a published port (`-p 8000:8000`)
+cannot reach (Docker routes through the container's eth0). Start the
+container with `--host 0.0.0.0` — and treat the resulting exposure
+seriously: put TLS or a network policy in front if the port is reachable
+beyond your own host.
 
 **Where do logs go?** stderr. Redirect them: `nim-proxy … 2>>proxy.log`.
 stdout has exactly one payload: the startup banner with the endpoint URL.

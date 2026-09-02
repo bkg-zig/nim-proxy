@@ -369,9 +369,12 @@ jobs:
         run: |
           # The container forwards CLI arguments to the binary; a dummy key
           # boots the headless gateway, /health must answer, and the
-          # built-in HEALTHCHECK must go healthy.
+          # built-in HEALTHCHECK must go healthy. --host 0.0.0.0 is required
+          # for the published port: the default 127.0.0.1 binds the
+          # container's OWN loopback, which docker-proxy's NAT path (host →
+          # container eth0) can never reach.
           docker run -d --name smoke -p 8000:8000 nim-proxy:ci \
-            --nim-api-key nvapi-ci-smoke-key-not-real --rpm 30
+            --nim-api-key nvapi-ci-smoke-key-not-real --rpm 30 --host 0.0.0.0
           ok=0
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then ok=1; break; fi

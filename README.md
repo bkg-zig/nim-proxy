@@ -130,10 +130,11 @@ and run it — it needs nothing else: no Docker, no Redis, no database, no
 browser, no TTY, no DISPLAY. SSH-only servers work exactly like local ones.
 
 An (optional) ~5 MB scratch image is also attached to each release. If you
-already have a container environment,
-`docker run ghcr.io/katesean/nim-proxy … --nim-api-key … --rpm 30`
-just forwards the CLI arguments to the binary — but Docker is entirely
-optional.
+already have a container environment, pass the CLI arguments straight
+through — including `--host 0.0.0.0`, which published ports (`-p`) require,
+since the loopback default binds the container's own 127.0.0.1:
+`docker run -p 8000:8000 ghcr.io/katesean/nim-proxy --nim-api-key nvapi-… --rpm 30 --host 0.0.0.0`
+Docker itself is entirely optional.
 
 ## Model names — who specifies what
 
