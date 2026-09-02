@@ -330,6 +330,137 @@ async fn unknown_v1_paths_proxy_verbatim() {
 }
 
 // ---------------------------------------------------------------------------
+// Model name configuration (--model / --force-model)
+// ---------------------------------------------------------------------------
+
+/// A chat-completions body with NO `model` field (the --model case).
+fn modelless_body(convo: &str) -> serde_json::Value {
+    serde_json::json!({
+        "messages": [
+            {"role": "system", "content": "you are a test"},
+            {"role": "user", "content": convo}
+        ]
+    })
+}
+
+#[tokio::test]
+async fn model_names_pass_through_by_default() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, ProxyOpts::default()).await;
+    let client = reqwest::Client::new();
+
+    // Without any model flag the consumer's choice reaches NVIDIA verbatim.
+    let resp = chat(&client, &proxy, "model-passthrough").await;
+    assert_eq!(resp.status(), 200);
+    let bodies = mock.state.hit_bodies();
+    assert_eq!(bodies.len(), 1);
+    assert_eq!(bodies[0]["model"], "mock/model-a");
+
+    // The banner states the passthrough posture.
+    let out = proxy.stdout_text();
+    assert!(out.contains("Model:"), "{out}");
+    assert!(
+        out.contains("passthrough (each client request names its own model)"),
+        "{out}"
+    );
+    proxy.terminate(Duration::from_secs(10)).await;
+}
+
+#[tokio::test]
+async fn model_flag_fills_a_missing_model_and_respects_an_explicit_one() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(
+        &mock.url,
+        ProxyOpts {
+            extra_args: vec!["--model".to_owned(), "z-ai/glm-5.2".to_owned()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    // Request without a model: the default is injected.
+    let resp = client
+        .post(proxy.url("/v1/chat/completions"))
+        .json(&modelless_body("modelless"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Request naming its own model: passed through untouched.
+    let resp = chat(&client, &proxy, "explicit-model").await;
+    assert_eq!(resp.status(), 200);
+
+    let bodies = mock.state.hit_bodies();
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[0]["model"], "z-ai/glm-5.2");
+    assert_eq!(bodies[1]["model"], "mock/model-a");
+
+    let out = proxy.stdout_text();
+    assert!(
+        out.contains("z-ai/glm-5.2 (default — used when a request omits 'model')"),
+        "{out}"
+    );
+    proxy.terminate(Duration::from_secs(10)).await;
+}
+
+#[tokio::test]
+async fn force_model_pins_buffered_and_streaming_requests() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(
+        &mock.url,
+        ProxyOpts {
+            extra_args: vec!["--force-model".to_owned(), "pinned/model-x".to_owned()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    // Buffered request asking for a different model: rewritten upstream.
+    let resp = chat(&client, &proxy, "forced-buffered").await;
+    assert_eq!(resp.status(), 200);
+
+    // Streaming request: the rewrite must survive the stream_options
+    // injection path (both edits compose into one upstream body).
+    let resp = chat_stream(&client, &proxy, "forced-stream").await;
+    let text = read_sse(resp).await;
+    assert!(text.contains("data: [DONE]"), "{text}");
+
+    let bodies = mock.state.hit_bodies();
+    assert_eq!(bodies.len(), 2);
+    for (i, body) in bodies.iter().enumerate() {
+        assert_eq!(body["model"], "pinned/model-x", "body {i}: {body}");
+    }
+
+    let out = proxy.stdout_text();
+    assert!(
+        out.contains("pinned/model-x (pinned — every request is rewritten to this model)"),
+        "{out}"
+    );
+    proxy.terminate(Duration::from_secs(10)).await;
+}
+
+#[tokio::test]
+async fn cli_rejects_model_and_force_model_together() {
+    let (code, _, stderr) = run_cli_once(&[
+        "--nim-api-key",
+        "nvapi-x",
+        "--model",
+        "a/b",
+        "--force-model",
+        "c/d",
+    ]);
+    assert_eq!(code, Some(2));
+    assert!(stderr.contains("mutually exclusive"), "{stderr}");
+
+    let (code, _, stderr) = run_cli_once(&["--nim-api-key", "nvapi-x", "--model", "  "]);
+    assert_eq!(code, Some(2));
+    assert!(stderr.contains("must not be empty"), "{stderr}");
+}
+
+// ---------------------------------------------------------------------------
 // FIFO
 // ---------------------------------------------------------------------------
 

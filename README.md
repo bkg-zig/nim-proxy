@@ -52,7 +52,7 @@ dashboard, no database — the command line is the whole configuration:
 It prints the one thing you need — the endpoint — to stdout:
 
 ```
-nim-proxy 0.7.0 started successfully.
+nim-proxy 0.7.1 started successfully.
 
 OpenAI-compatible endpoint:
 http://127.0.0.1:8000/v1
@@ -62,6 +62,7 @@ Port:                       8000
 RPM limit:                  30
 Maximum upstream concurrency: 1
 Upstream:                   NVIDIA NIM (https://integrate.api.nvidia.com)
+Model:                      passthrough (each client request names its own model)
 ```
 
 (All logs go to stderr; stdout carries only the banner. The NVIDIA key is
@@ -79,7 +80,11 @@ backend with the base URL and any API key value it will accept locally:
 OPENAI_BASE_URL=http://127.0.0.1:8000/v1 OPENAI_API_KEY=local opencode
 ```
 
-That's it. The proxy transparently provides:
+That's it. For step-by-step setup of specific agents (OpenCode, Hermes
+Agent, MiMo Code, Prime Agent) and the full model-name story, see
+**[USAGE.md](USAGE.md)** — it is also attached to every release.
+
+The proxy transparently provides:
 
 - **Strict FIFO** — requests reach NVIDIA in arrival order; later requests
   never overtake earlier ones.
@@ -110,20 +115,53 @@ cargo build --release
 # target/release/nim-proxy
 ```
 
+Or download the prebuilt static binary from this repository's
+[releases page](https://github.com/katesean/nim-proxy/releases) and copy it
+to any headless Linux host:
+
+```sh
+curl -LO https://github.com/katesean/nim-proxy/releases/latest/download/nim-proxy-0.7.1-linux-amd64.tar.gz
+tar xzf nim-proxy-0.7.1-linux-amd64.tar.gz
+install -m755 nim-proxy-amd64 /usr/local/bin/nim-proxy
+```
+
 Copy that one file to any headless Linux host, VM, or *existing* container
 and run it — it needs nothing else: no Docker, no Redis, no database, no
 browser, no TTY, no DISPLAY. SSH-only servers work exactly like local ones.
 
-Prebuilt multi-arch binaries and an (optional) ~5 MB scratch image are
-attached to each [release](https://github.com/miztertea/nim-proxy/releases).
-If you already have a container environment, `docker run ghcr.io/miztertea/nim-proxy … --nim-api-key … --rpm 30`
+An (optional) ~5 MB scratch image is also attached to each release. If you
+already have a container environment,
+`docker run ghcr.io/katesean/nim-proxy … --nim-api-key … --rpm 30`
 just forwards the CLI arguments to the binary — but Docker is entirely
 optional.
+
+## Model names — who specifies what
+
+By default **the consumer (the AI agent) specifies the model** in each
+request, exactly like the OpenAI API it already speaks: the agent's config
+sets a model id, the request body carries `"model": "…"`, and nim-proxy
+passes it to NVIDIA verbatim. This is the recommended posture — each agent
+picks the NIM model it wants.
+
+Two CLI flags change that, for the cases where the proxy side should own
+the decision:
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Pass-through: each request's `model` field reaches NVIDIA verbatim. |
+| `--model z-ai/glm-5.2` | Default: fills `model` in **only when a request omits it**. An explicit client model always wins. |
+| `--force-model z-ai/glm-5.2` | Pinned: **every** request is rewritten to this model, regardless of what agents ask for. |
+
+Model ids must match NVIDIA's catalog exactly — list what your key serves
+with `curl http://127.0.0.1:8000/v1/models` (cached; costs no rate budget).
+See [USAGE.md](USAGE.md) for concrete configuration of OpenCode, Hermes
+Agent, MiMo Code, and Prime Agent, including their model-name settings.
 
 ## CLI reference
 
 ```
 nim-proxy --nim-api-key <KEY> [--rpm <RPM>] [--host <HOST>] [--port <PORT>] [--base-url <URL>]
+          [--model <MODEL>] [--force-model <MODEL>]
 ```
 
 | Flag | Default | Meaning |
@@ -133,6 +171,8 @@ nim-proxy --nim-api-key <KEY> [--rpm <RPM>] [--host <HOST>] [--port <PORT>] [--b
 | `--host` | `127.0.0.1` | Listen address. `0.0.0.0` binds all interfaces (prints a warning — only for trusted networks). |
 | `--port` | `8000` | Listen port. |
 | `--base-url` | `https://integrate.api.nvidia.com` | Upstream NIM base URL (self-hosted NIM friendly). |
+| `--model` | *(none)* | Default model id injected when a request omits `model`; an explicit client model wins. |
+| `--force-model` | *(none)* | Pin every request to this model id, overriding each client's choice. Mutually exclusive with `--model`. |
 | `-h`, `--help` | | Print usage and exit 0. |
 | `-V`, `--version` | | Print the version and exit 0. |
 
@@ -189,6 +229,18 @@ exits with code 2 and a clear error **before** any server starts.
   overtake. Boring on purpose.
 - This tool is **not** designed to circumvent NVIDIA's terms of service. It
   makes agents patient enough to live within one key's RPM budget.
+
+### Quick smoke test
+
+```sh
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer local" \
+  -d '{"model": "z-ai/glm-5.2", "messages": [{"role": "user", "content": "hi"}]}'
+```
+
+Full agent walkthroughs (OpenCode, Hermes Agent, MiMo Code, Prime Agent,
+plus the OpenAI Python client): **[USAGE.md](USAGE.md)**.
 
 ## Development
 

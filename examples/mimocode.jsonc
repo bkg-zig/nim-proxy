@@ -1,0 +1,40 @@
+// MiMo Code (Mimocode) — NVIDIA NIM via nim-proxy
+//
+// Copy to ~/.config/mimocode/mimocode.jsonc (global) or
+// .mimocode/mimocode.jsonc (project). See USAGE.md § "MiMo Code".
+//
+// Points MiMo Code at a local nim-proxy (http://127.0.0.1:8000/v1) and
+// selects z-ai/glm-5.2 from the NVIDIA NIM catalog.
+//
+// Model-name mechanics: the key under `models` is the upstream model id
+// (the exact NVIDIA catalog id), and the top-level `model` selects it as
+// "<provider-id>/<model-id>". Only the FIRST slash separates provider from
+// model, so ids like z-ai/glm-5.2 work as-is:
+//   "model": "custom/z-ai/glm-5.2"  ->  provider "custom", model "z-ai/glm-5.2"
+//
+// Rename "custom" to another unused lowercase id if you already have a
+// custom provider; keep the top-level "model" in sync.
+{
+  "$schema": "https://mimo.xiaomi.com/mimocode/config.json",
+  "model": "custom/z-ai/glm-5.2",
+  "provider": {
+    "custom": {
+      "name": "NVIDIA NIM (via nim-proxy)",
+      "npm": "@ai-sdk/openai-compatible",
+      "only_configured_models": true,
+      "models": {
+        // Add one entry per NIM model you want selectable:
+        // "meta/llama-3.3-70b-instruct": { "name": "Llama 3.3 70B (NIM)" },
+        "z-ai/glm-5.2": {
+          "name": "GLM-5.2 (NIM)"
+        }
+      },
+      "options": {
+        // Exactly "baseURL" and "apiKey". The key can be any non-empty
+        // string: the proxy applies the real NVIDIA credential upstream.
+        "baseURL": "http://127.0.0.1:8000/v1",
+        "apiKey": "local"
+      }
+    }
+  }
+}

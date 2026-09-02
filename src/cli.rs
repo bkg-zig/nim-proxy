@@ -34,12 +34,30 @@ pub struct Args {
     pub host: String,
     pub port: u16,
     pub base_url: String,
+    /// Default model injected into requests that omit `model` (from `--model`).
+    pub default_model: Option<String>,
+    /// Model forced onto EVERY request, overriding the client's choice
+    /// (from `--force-model`). Mutually exclusive with `default_model`.
+    pub force_model: Option<String>,
 }
 
 impl Args {
     /// The URL agents copy/paste as their OpenAI-compatible base URL.
     pub fn endpoint_url(&self) -> String {
         format!("http://{}:{}/v1", display_host(&self.host), self.port)
+    }
+
+    /// The effective model policy as a human-readable banner line fragment.
+    pub fn model_policy(&self) -> String {
+        match (&self.force_model, &self.default_model) {
+            (Some(forced), _) => {
+                format!("{forced} (pinned — every request is rewritten to this model)")
+            }
+            (None, Some(default)) => {
+                format!("{default} (default — used when a request omits 'model')")
+            }
+            (None, None) => "passthrough (each client request names its own model)".into(),
+        }
     }
 }
 
@@ -71,7 +89,7 @@ nim-proxy — minimal headless OpenAI-compatible gateway for NVIDIA NIM
 
 USAGE:
     nim-proxy --nim-api-key <KEY> [--rpm <RPM>] [--host <HOST>] [--port <PORT>]
-              [--base-url <URL>]
+              [--base-url <URL>] [--model <MODEL>] [--force-model <MODEL>]
 
 OPTIONS:
     --nim-api-key <KEY>   NVIDIA NIM API key (nvapi-...). Required.
@@ -83,8 +101,19 @@ OPTIONS:
     --port <PORT>         Listen port. Default: 8000.
     --base-url <URL>      Upstream NIM base URL. Default:
                           https://integrate.api.nvidia.com
+    --model <MODEL>       Default model id (e.g. z-ai/glm-5.2) injected when a
+                          request omits 'model'. Without it, requests without
+                          a model fail upstream exactly as if sent directly.
+    --force-model <MODEL> Pin EVERY request to this model id, overriding what
+                          each client asks for. Mutually exclusive with --model.
+                          Model ids must match NVIDIA's catalog exactly
+                          (curl $endpoint/v1/models to list them).
     -h, --help            Print this help and exit.
     -V, --version         Print the version and exit.
+
+Model selection: by default the consumer (AI agent) names the model in each
+request and the proxy passes it through untouched. --model fills a default
+for requests that omit it; --force-model pins one model for everyone.
 
 The proxy serializes upstream work: one NVIDIA request at a time, strict
 FIFO, full response barrier (streaming included). No config file, no
@@ -105,6 +134,8 @@ where
         host: DEFAULT_HOST.to_owned(),
         port: DEFAULT_PORT,
         base_url: DEFAULT_BASE_URL.to_owned(),
+        default_model: None,
+        force_model: None,
     };
     let mut seen: Vec<&str> = Vec::new();
 
@@ -119,7 +150,8 @@ where
             "-V" | "--version" => {
                 return Parsed::Version(format!("nim-proxy {}\n", env!("CARGO_PKG_VERSION")))
             }
-            "--nim-api-key" | "--rpm" | "--host" | "--port" | "--base-url" => {
+            "--nim-api-key" | "--rpm" | "--host" | "--port" | "--base-url" | "--model"
+            | "--force-model" => {
                 let value = match inline {
                     Some(v) => v,
                     None => match it.next() {
@@ -137,6 +169,8 @@ where
                     "--rpm" => "--rpm",
                     "--host" => "--host",
                     "--port" => "--port",
+                    "--model" => "--model",
+                    "--force-model" => "--force-model",
                     _ => "--base-url",
                 });
                 if dup {
@@ -170,6 +204,12 @@ where
 
     if args.nim_api_key.is_empty() {
         return Parsed::Error(format!("error: --nim-api-key is required\n\n{HELP}"));
+    }
+    if args.default_model.is_some() && args.force_model.is_some() {
+        return Parsed::Error(format!(
+            "error: --model and --force-model are mutually exclusive — \
+             --model fills in a default, --force-model pins every request\n\n{HELP}"
+        ));
     }
     Parsed::Run(args)
 }
@@ -231,6 +271,22 @@ fn assign(args: &mut Args, name: &str, value: &str) -> Result<(), String> {
             args.base_url = url.to_owned();
             Ok(())
         }
+        "--model" => {
+            let model = value.trim();
+            if model.is_empty() {
+                return Err("--model must not be empty".into());
+            }
+            args.default_model = Some(model.to_owned());
+            Ok(())
+        }
+        "--force-model" => {
+            let model = value.trim();
+            if model.is_empty() {
+                return Err("--force-model must not be empty".into());
+            }
+            args.force_model = Some(model.to_owned());
+            Ok(())
+        }
         _ => unreachable!("caller matched the flag set"),
     }
 }
@@ -239,8 +295,12 @@ impl fmt::Display for Args {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "host={} port={} rpm={} base_url={}",
-            self.host, self.port, self.rpm, self.base_url
+            "host={} port={} rpm={} base_url={} model={}",
+            self.host,
+            self.port,
+            self.rpm,
+            self.base_url,
+            self.model_policy()
         )
     }
 }
@@ -447,10 +507,104 @@ mod tests {
             "--host",
             "--port",
             "--base-url",
+            "--model",
+            "--force-model",
             "--help",
             "--version",
         ] {
             assert!(h.contains(token), "help must mention {token}");
+        }
+    }
+
+    #[test]
+    fn model_flag_sets_default_model() {
+        let Parsed::Run(a) = run(&["--nim-api-key", "k", "--model", "z-ai/glm-5.2"]) else {
+            panic!("expected Run");
+        };
+        assert_eq!(a.default_model.as_deref(), Some("z-ai/glm-5.2"));
+        assert_eq!(a.force_model, None);
+        assert_eq!(
+            a.model_policy(),
+            "z-ai/glm-5.2 (default — used when a request omits 'model')"
+        );
+    }
+
+    #[test]
+    fn force_model_flag_pins_the_model() {
+        let Parsed::Run(a) = run(&[
+            "--nim-api-key",
+            "k",
+            "--force-model",
+            "meta/llama-3.3-70b-instruct",
+        ]) else {
+            panic!("expected Run");
+        };
+        assert_eq!(
+            a.force_model.as_deref(),
+            Some("meta/llama-3.3-70b-instruct")
+        );
+        assert_eq!(a.default_model, None);
+        assert_eq!(
+            a.model_policy(),
+            "meta/llama-3.3-70b-instruct (pinned — every request is rewritten to this model)"
+        );
+    }
+
+    #[test]
+    fn no_model_flags_is_passthrough() {
+        let Parsed::Run(a) = run(&["--nim-api-key", "k"]) else {
+            panic!("expected Run");
+        };
+        assert_eq!(a.default_model, None);
+        assert_eq!(a.force_model, None);
+        assert_eq!(
+            a.model_policy(),
+            "passthrough (each client request names its own model)"
+        );
+    }
+
+    #[test]
+    fn model_and_force_model_are_mutually_exclusive() {
+        match run(&[
+            "--nim-api-key",
+            "k",
+            "--model",
+            "a/b",
+            "--force-model",
+            "c/d",
+        ]) {
+            Parsed::Error(msg) => {
+                assert!(msg.contains("mutually exclusive"), "{msg}");
+            }
+            _ => panic!("expected Error"),
+        }
+    }
+
+    #[test]
+    fn empty_model_flags_are_rejected() {
+        for flag in ["--model", "--force-model"] {
+            match run(&["--nim-api-key", "k", flag, "   "]) {
+                Parsed::Error(msg) => {
+                    assert!(msg.contains("must not be empty"), "{msg}");
+                }
+                _ => panic!("expected Error for {flag}"),
+            }
+        }
+    }
+
+    #[test]
+    fn model_flags_accept_inline_equals_form() {
+        let Parsed::Run(a) = run(&["--nim-api-key=k", "--model=z-ai/glm-5.2"]) else {
+            panic!("expected Run");
+        };
+        assert_eq!(a.default_model.as_deref(), Some("z-ai/glm-5.2"));
+    }
+
+    #[test]
+    fn model_flag_without_value_is_rejected() {
+        match run(&["--nim-api-key", "k", "--model"]) {
+            Parsed::Error(msg) => assert!(msg.contains("requires a value"), "{msg}"),
+            _ => panic!("expected Error"),
         }
     }
 }

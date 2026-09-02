@@ -5,6 +5,37 @@ All notable changes to nim-proxy are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-02
+
+### Added
+
+- **Model-name configuration — `--model` and `--force-model`.** The model an
+  agent uses can now come from either side, explicitly:
+  - Default (unchanged): the consumer names the model in each request
+    (`"model": "…"` in the chat/completions body) and the proxy passes it
+    through verbatim.
+  - `--model <ID>` fills that field in when a request omits it (or sends an
+    empty value); an explicit client model always wins.
+  - `--force-model <ID>` pins every request to one model id, rewriting what
+    each client asks for. Useful to point a fleet of agents at exactly one
+    NIM model regardless of their own configs.
+  - The two flags are mutually exclusive (exit 2 before the server starts).
+  - The startup banner gains a `Model:` line stating the active policy
+    (`passthrough` / default / pinned), so the operator sees at a glance
+    who picks the model.
+  - Injection happens before everything else (metric labels, the
+    stream_options usage injection, retries), so the effective model is
+    consistent across the whole request lifecycle; non-JSON and non-object
+    bodies pass through untouched.
+- **`USAGE.md`** — a complete usage guide shipped in the repo and attached to
+  the release: install, CLI reference, who specifies the model name (and how),
+  and step-by-step setup for OpenCode, Hermes Agent, MiMo Code (Mimocode),
+  and Prime Agent against the local endpoint.
+- e2e and unit coverage for the model policy: passthrough default,
+  fill-if-missing, force-override (buffered and streaming, composed with the
+  stream_options injection and its retry path), CLI mutual-exclusion and
+  empty-value rejection, and banner disclosure.
+
 ## [0.7.0] - 2026-08-31
 
 > **Breaking upgrade:** v0.7.0 transforms nim-proxy into a minimal, headless

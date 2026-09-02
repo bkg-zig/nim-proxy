@@ -431,6 +431,47 @@ fn upstream_request(
     req
 }
 
+/// Apply the CLI model policy to a request body:
+/// - `--force-model` rewrites `model` on every JSON-object body, overriding
+///   what the client asked for.
+/// - `--model` fills `model` in when the request omits it (or sends an
+///   empty/non-string value); an explicit model is passed through untouched.
+/// - Neither flag: strict pass-through (the default posture).
+///
+/// Non-JSON and non-object bodies are left alone (nothing sensible to edit);
+/// `parsed` stays in sync so later stages (metric labels, the stream_options
+/// injection) operate on the effective body. Re-serialization reorders JSON
+/// keys — harmless on the wire, and the existing stream_options injection
+/// already does exactly this.
+fn apply_model_policy(cfg: &Config, parsed: &mut Option<serde_json::Value>, body: Bytes) -> Bytes {
+    let model = cfg.force_model.as_deref().or(cfg.default_model.as_deref());
+    let Some(model) = model else {
+        return body;
+    };
+    let Some(v) = parsed.as_mut() else {
+        return body;
+    };
+    if !v.is_object() {
+        return body;
+    }
+    let current = v.get("model").and_then(|m| m.as_str()).unwrap_or("");
+    let needs_edit = if cfg.force_model.is_some() {
+        current != model
+    } else {
+        current.is_empty()
+    };
+    if !needs_edit {
+        return body;
+    }
+    v["model"] = serde_json::Value::String(model.to_owned());
+    match serde_json::to_vec(v) {
+        Ok(bytes) => Bytes::from(bytes),
+        // Unreachable for a Value round-trip, but a serialization failure must
+        // never break the request: fall back to the untouched original.
+        Err(_) => body,
+    }
+}
+
 /// Single entry point for every /v1/* call. The local endpoint is open
 /// (loopback by default): any bearer token — or none — is accepted; the
 /// NVIDIA credential lives only upstream and never in any response.
@@ -482,6 +523,10 @@ pub async fn handle(
         .unwrap_or_else(|| uri.path().to_owned());
 
     let mut parsed = serde_json::from_slice::<serde_json::Value>(&body).ok();
+    // Model policy (--model / --force-model) rewrites the parsed body BEFORE
+    // anything else reads it, so the metric label, the stream_options
+    // injection, and the upstream request all see the effective model.
+    let body = apply_model_policy(&cfg, &mut parsed, body);
     let raw_model = parsed
         .as_ref()
         .and_then(|v| v.get("model").and_then(|m| m.as_str()))
@@ -1063,9 +1108,98 @@ fn gateway_timeout(cfg: &Config, pool_len: usize) -> Response {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_label, count_tools, is_json_mode, label_path, sanitize_label, tool_choice_mode,
+        apply_model_policy, bounded_label, count_tools, is_json_mode, label_path, sanitize_label,
+        tool_choice_mode,
     };
+    use crate::Config;
+    use bytes::Bytes;
     use std::collections::HashSet;
+    use std::time::Duration;
+
+    fn cfg(default: Option<&str>, force: Option<&str>) -> Config {
+        Config {
+            base_url: "http://upstream".into(),
+            default_model: default.map(str::to_owned),
+            force_model: force.map(str::to_owned),
+            max_wait: Duration::from_secs(1),
+            heartbeat: Duration::from_secs(1),
+            models_ttl: Duration::from_secs(1),
+            stream_idle: Duration::ZERO,
+            request_timeout: Duration::from_secs(1),
+            strict_passthrough: false,
+            max_inflight: 8,
+        }
+    }
+
+    fn parse_body(b: &str) -> Option<serde_json::Value> {
+        serde_json::from_str(b).ok()
+    }
+
+    fn roundtrip(body: &str, config: &Config) -> serde_json::Value {
+        let mut parsed = parse_body(body);
+        let out = apply_model_policy(config, &mut parsed, Bytes::from(body.to_owned()));
+        // The returned bytes and the parsed value must agree on the model.
+        let from_bytes: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(from_bytes["model"], parsed.as_ref().unwrap()["model"]);
+        from_bytes
+    }
+
+    #[test]
+    fn no_policy_is_strict_passthrough() {
+        let config = cfg(None, None);
+        let out = roundtrip(r#"{"model": "client/model", "messages": []}"#, &config);
+        assert_eq!(out["model"], "client/model");
+    }
+
+    #[test]
+    fn default_model_fills_only_missing_or_empty() {
+        let config = cfg(Some("z-ai/glm-5.2"), None);
+        // Missing key entirely.
+        let out = roundtrip(r#"{"messages": []}"#, &config);
+        assert_eq!(out["model"], "z-ai/glm-5.2");
+        // Empty string.
+        let out = roundtrip(r#"{"model": "", "messages": []}"#, &config);
+        assert_eq!(out["model"], "z-ai/glm-5.2");
+        // Explicit client model wins — the default is NOT a rewrite.
+        let out = roundtrip(
+            r#"{"model": "meta/llama-3.3-70b-instruct", "messages": []}"#,
+            &config,
+        );
+        assert_eq!(out["model"], "meta/llama-3.3-70b-instruct");
+    }
+
+    #[test]
+    fn force_model_overrides_everything() {
+        let config = cfg(None, Some("pinned/model"));
+        let out = roundtrip(
+            r#"{"model": "client/model", "stream": true, "messages": []}"#,
+            &config,
+        );
+        assert_eq!(out["model"], "pinned/model");
+        // Other fields survive.
+        assert_eq!(out["stream"], true);
+        // Missing key is filled too.
+        let out = roundtrip(r#"{"messages": []}"#, &config);
+        assert_eq!(out["model"], "pinned/model");
+        // Already-pinned body is left byte-identical (no needless rewrite).
+        let mut parsed = parse_body(r#"{"model": "pinned/model"}"#);
+        let out = apply_model_policy(
+            &config,
+            &mut parsed,
+            Bytes::from_static(br#"{"model": "pinned/model"}"#),
+        );
+        assert_eq!(&out[..], br#"{"model": "pinned/model"}"#);
+    }
+
+    #[test]
+    fn non_json_and_non_object_bodies_pass_through_untouched() {
+        let config = cfg(None, Some("pinned/model"));
+        for raw in ["", "not json at all", "[1, 2, 3]", "\"just a string\""] {
+            let mut parsed = parse_body(raw);
+            let out = apply_model_policy(&config, &mut parsed, Bytes::from(raw.to_owned()));
+            assert_eq!(&out[..], raw.as_bytes(), "body must be untouched: {raw}");
+        }
+    }
 
     #[test]
     fn sanitize_strips_injection_chars() {

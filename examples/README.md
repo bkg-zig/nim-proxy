@@ -1,5 +1,26 @@
 # Example configs
 
+Ready-made configurations pointing four AI agents at a local nim-proxy
+(`http://127.0.0.1:8000/v1`). Each one sets the base URL, a placeholder
+API key (any non-empty string works — the proxy substitutes the real
+NVIDIA credential upstream), and **the model name**. Full walkthroughs:
+[USAGE.md](../USAGE.md).
+
+| File | Agent | Where it goes | Where the model name lives |
+|---|---|---|---|
+| `opencode.json` | [OpenCode](https://opencode.ai) | `~/.config/opencode/opencode.json` or `./opencode.json` | key under `models` + top-level `"model": "nim/<model-id>"` |
+| `hermes-config.yaml` | [Hermes Agent](https://github.com/NousResearch/hermes-agent) | `~/.hermes/config.yaml` | `model.default` |
+| `mimocode.jsonc` | [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code) | `~/.config/mimocode/mimocode.jsonc` or `.mimocode/mimocode.jsonc` | key under `provider.custom.models` + top-level `"model": "custom/<model-id>"` |
+| `prime-agent-models.json` | [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) | `~/.prime/agent/models.json` | each model's `id` in the `models` array |
+
+All examples use `z-ai/glm-5.2` (Z.ai's GLM-5.2 on the
+[NVIDIA NIM catalog](https://build.nvidia.com/z-ai)) as the model id — swap
+in whatever your key serves, matching the catalog exactly:
+
+```sh
+curl -s localhost:8000/v1/models | grep -i glm
+```
+
 ## `opencode.json` — GLM-5.2 via nim-proxy
 
 A ready-to-use [OpenCode](https://opencode.ai) config pointed at a local
@@ -13,9 +34,7 @@ global use) and set the API key OpenCode sends to the proxy:
 
 ```sh
 cp examples/opencode.json ./opencode.json
-export NIM_PROXY_KEY=your-proxy-secret   # a client API key (npk_…) you minted in
-                                         # Settings when the API is in keyed mode,
-                                         # or any non-empty string in open mode
+export NIM_PROXY_KEY=local   # any non-empty string in open mode
 opencode
 ```
 
@@ -35,7 +54,7 @@ hosted free API yet), change the `models` key and the `model` reference to match
 |---|---|---|
 | `options.timeout` | `false` | **The important one.** nim-proxy holds the connection open with SSE heartbeats while it waits out NIM's 40 RPM limit. With a client-side timeout, OpenCode would abort mid-wait and defeat the proxy's whole purpose. Disable it and let the proxy pace. |
 | `options.baseURL` | `http://localhost:8000/v1` | Points at the proxy, not NIM directly. Change the port if you set a non-default `PORT`. |
-| `options.apiKey` | `{env:NIM_PROXY_KEY}` | The SDK requires a key. In keyed mode this is a client API key (`npk_…`) you generate in the dashboard Settings; in open mode any non-empty value works. |
+| `options.apiKey` | `{env:NIM_PROXY_KEY}` | The SDK requires a key. Any non-empty value works — the proxy applies the real credential upstream. |
 | `limit.context` | `131072` (128k) | GLM-5.2's card advertises a 1M-token window, but NIM's **hosted** endpoint has historically served GLM at 128k. 128k is the safe floor and is plenty for agentic coding. Because OpenCode auto-compacts *below* this number, setting it conservatively means compaction fires before NIM can reject an over-length request. Raise it toward 1M only if testing confirms the hosted window is larger. |
 | `limit.output` | `32768` | OpenCode silently caps `limit.output` at 32k ([issue #29363](https://github.com/anomalyco/opencode/issues/29363)), so this is the effective ceiling. Generous headroom for GLM-5.2's reasoning/"thinking" tokens, which count toward output. |
 | `options.temperature` | `0.6` | Balanced for agentic coding — deterministic enough to follow tool schemas, loose enough to reason. Bump toward `1.0` (Z.ai's general-purpose default) for more exploratory work. |
@@ -45,10 +64,11 @@ hosted free API yet), change the `models` key and the `model` reference to match
 
 ### Notes
 
-- **Rate budget**: one NIM key = 40 RPM. Long agentic runs on GLM-5.2 (which
-  emits many reasoning tokens) go faster with more keys added in the dashboard
-  Settings — the proxy load-balances across them. Watch utilization on the
-  dashboard.
+- **Rate budget**: one NIM key = 40 RPM; the proxy paces to 30 by default.
+  Long agentic runs on GLM-5.2 (which emits many reasoning tokens) simply
+  queue — that is the design. Watch utilization on `/metrics`.
 - **Thinking effort**: GLM-5.2 supports variable thinking effort. This example
   omits a `reasoning_effort` parameter because NIM may reject unknown fields
   with a 400; add it only after confirming your NIM endpoint accepts it.
+- Alternatively, `--model z-ai/glm-5.2` on the proxy pins every request to
+  one model regardless of what the agent asks — see USAGE.md § 4.

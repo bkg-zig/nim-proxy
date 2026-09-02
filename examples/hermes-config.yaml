@@ -1,0 +1,37 @@
+# Hermes Agent — NVIDIA NIM via nim-proxy
+#
+# Copy the model block into ~/.hermes/config.yaml (or use
+# `hermes config set model.default …`). See USAGE.md § "Hermes Agent".
+#
+# Points Hermes Agent at a local nim-proxy (http://127.0.0.1:8000/v1) and
+# selects z-ai/glm-5.2 from the NVIDIA NIM catalog.
+#
+# Hermes speaks the OpenAI wire format against `provider: "custom"`:
+# the model id in `model.default` is sent verbatim, so it must match the
+# NIM catalog exactly (curl -s localhost:8000/v1/models to list them).
+#
+# NOTE: Hermes also ships a native `nvidia` provider (direct to
+# build.nvidia.com). Keep `provider: "custom"` pointed at nim-proxy to get
+# the proxy's FIFO queueing, single-flight, and RPM pacing.
+
+model:
+  # The model name — a NVIDIA NIM catalog id, passed through by the proxy.
+  default: "z-ai/glm-5.2"
+
+  # "custom" = any OpenAI-compatible endpoint; base_url below is the proxy.
+  provider: "custom"
+  base_url: "http://127.0.0.1:8000/v1"
+
+  # Any non-empty value: the local proxy endpoint is open and substitutes
+  # the real NVIDIA credential upstream. Prefer ~/.hermes/.env:
+  #   OPENAI_API_KEY=local
+  api_key: "local"
+
+  # The proxy streams and keeps queued connections alive with SSE
+  # heartbeats — leave streaming on.
+  streaming: true
+
+  # Optional: Hermes normally auto-detects the context window from
+  # /v1/models (which the proxy serves, cached). 128k is the safe floor
+  # for GLM-5.2 on NIM's hosted endpoint; uncomment to pin it.
+  # context_length: 131072

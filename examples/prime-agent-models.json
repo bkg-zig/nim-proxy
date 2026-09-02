@@ -1,0 +1,31 @@
+{
+  "//": "Prime Agent — NVIDIA NIM via nim-proxy. Copy to ~/.prime/agent/models.json. See USAGE.md § 'Prime Agent'.",
+  "//2": "Model-name mechanics: each entry's `id` is the upstream model id (the exact NVIDIA NIM catalog id) — that string is what the API receives. Select it with `prime-agent --model z-ai/glm-5.2` or /model in a session. The file reloads whenever /model is opened.",
+  "providers": {
+    "nim-proxy": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "api": "openai-completions",
+      "//3": "Any non-empty apiKey works: the local proxy endpoint is open and substitutes the real NVIDIA credential upstream.",
+      "apiKey": "local",
+      "models": [
+        {
+          "id": "z-ai/glm-5.2",
+          "name": "GLM-5.2 (NIM via nim-proxy)",
+          "contextWindow": 131072,
+          "maxTokens": 32768
+        },
+        {
+          "id": "meta/llama-3.3-70b-instruct",
+          "name": "Llama 3.3 70B (NIM via nim-proxy)",
+          "contextWindow": 131072,
+          "maxTokens": 16384
+        }
+      ],
+      "//4": "If your NIM endpoint rejects reasoning_effort or the developer role, uncomment:",
+      "//compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      }
+    }
+  }
+}

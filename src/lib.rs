@@ -63,6 +63,12 @@ const HISTOGRAM_BUCKETS: &[(&str, &[f64])] = &[
 /// every request sees via [`AppState::cfg`].
 pub struct Config {
     pub base_url: String,
+    /// Model injected when a request omits `model` (from `--model`).
+    pub default_model: Option<String>,
+    /// Model forced onto every request, overriding the client's choice
+    /// (from `--force-model`). Exactly one of the two is ever set (the CLI
+    /// rejects both together); `None`/`None` means strict passthrough.
+    pub force_model: Option<String>,
     pub max_wait: Duration,
     pub heartbeat: Duration,
     pub models_ttl: Duration,
@@ -175,6 +181,7 @@ Port:                       {}
 RPM limit:                  {}
 Maximum upstream concurrency: 1
 Upstream:                   NVIDIA NIM ({})
+Model:                      {}
 {}The NVIDIA API key is never logged or exposed. Agents need only the endpoint
 URL above (any bearer token is accepted locally). Press Ctrl-C to stop.
 ",
@@ -184,6 +191,7 @@ URL above (any bearer token is accepted locally). Press Ctrl-C to stop.
         args.port,
         args.rpm,
         args.base_url,
+        args.model_policy(),
         host_note
     )
 }
@@ -242,6 +250,8 @@ pub async fn run() {
 
     let cfg = Arc::new(Config {
         base_url: args.base_url.trim_end_matches('/').to_owned(),
+        default_model: args.default_model.clone(),
+        force_model: args.force_model.clone(),
         max_wait: Duration::from_secs(900),
         heartbeat: Duration::from_secs(10),
         models_ttl: Duration::from_secs(600),
@@ -404,6 +414,8 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8000,
             base_url: cli::DEFAULT_BASE_URL.into(),
+            default_model: None,
+            force_model: None,
         };
         let banner = startup_banner(&args);
         assert!(banner.contains("http://127.0.0.1:8000/v1"), "{banner}");
@@ -411,6 +423,11 @@ mod tests {
         assert!(banner.contains("30"), "{banner}");
         assert!(banner.contains("concurrency"), "{banner}");
         assert!(banner.contains("NVIDIA NIM"), "{banner}");
+        assert!(banner.contains("Model:"), "{banner}");
+        assert!(
+            banner.contains("passthrough (each client request names its own model)"),
+            "{banner}"
+        );
         assert!(
             !banner.contains("nvapi-SECRET-VALUE"),
             "the banner must never contain the API key"
@@ -422,6 +439,41 @@ mod tests {
     }
 
     #[test]
+    fn banner_shows_default_and_forced_model_policies() {
+        let default = cli::Args {
+            nim_api_key: "nvapi-x".into(),
+            rpm: 30,
+            host: "127.0.0.1".into(),
+            port: 8000,
+            base_url: cli::DEFAULT_BASE_URL.into(),
+            default_model: Some("z-ai/glm-5.2".into()),
+            force_model: None,
+        };
+        let banner = startup_banner(&default);
+        assert!(
+            banner.contains("z-ai/glm-5.2 (default — used when a request omits 'model')"),
+            "{banner}"
+        );
+
+        let forced = cli::Args {
+            nim_api_key: "nvapi-x".into(),
+            rpm: 30,
+            host: "127.0.0.1".into(),
+            port: 8000,
+            base_url: cli::DEFAULT_BASE_URL.into(),
+            default_model: None,
+            force_model: Some("meta/llama-3.3-70b-instruct".into()),
+        };
+        let banner = startup_banner(&forced);
+        assert!(
+            banner.contains(
+                "meta/llama-3.3-70b-instruct (pinned — every request is rewritten to this model)"
+            ),
+            "{banner}"
+        );
+    }
+
+    #[test]
     fn wildcard_host_banner_warns_and_uses_localhost_url() {
         let args = cli::Args {
             nim_api_key: "nvapi-x".into(),
@@ -429,6 +481,8 @@ mod tests {
             host: "0.0.0.0".into(),
             port: 9123,
             base_url: cli::DEFAULT_BASE_URL.into(),
+            default_model: None,
+            force_model: None,
         };
         let banner = startup_banner(&args);
         assert!(banner.contains("http://localhost:9123/v1"), "{banner}");
