@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod bridge;
 mod client_pool;
 mod config;
 mod dispatch;
