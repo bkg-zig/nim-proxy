@@ -1317,7 +1317,7 @@ pub async fn handle_messages(
         },
         None => work.await,
     };
-    anthropic_finish(response, &ctx, &request_model).await
+    anthropic_finish(response, &ctx, &request_model, &payload.tool_meta).await
 }
 
 /// Finish a bridge response: a success is harvested for observations and
@@ -1326,7 +1326,12 @@ pub async fn handle_messages(
 /// gets a parseable error. Unparseable success bodies pass through
 /// untouched — the pipeline already settled the request, so a 2xx is never
 /// dropped.
-async fn anthropic_finish(resp: Response, ctx: &Ctx, request_model: &str) -> Response {
+async fn anthropic_finish(
+    resp: Response,
+    ctx: &Ctx,
+    request_model: &str,
+    tool_meta: &[crate::bridge::ToolMeta],
+) -> Response {
     let status = resp.status();
     if status.is_success() {
         let bytes = match axum::body::to_bytes(resp.into_body(), usize::MAX).await {
@@ -1340,7 +1345,7 @@ async fn anthropic_finish(resp: Response, ctx: &Ctx, request_model: &str) -> Res
         match serde_json::from_slice::<serde_json::Value>(&bytes) {
             Ok(completion) => {
                 record_observations(ctx, &observe_buffered(&bytes));
-                let message = crate::bridge::chat_to_message(&completion, request_model);
+                let message = crate::bridge::chat_to_message(&completion, request_model, tool_meta);
                 return json_response(
                     status,
                     Bytes::from(

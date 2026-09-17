@@ -1449,6 +1449,18 @@
                               "name"
                             ],
                             "properties": {
+                              "caller": {
+                                "type": "object",
+                                "description": "Present when the tool runs client-side: {\"type\": \"direct\"}.",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "direct"
+                                    ]
+                                  }
+                                }
+                              },
                               "id": {
                                 "type": "string"
                               },
