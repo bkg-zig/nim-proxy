@@ -123,8 +123,10 @@ without rewriting bytes. See
 boundaries; the four racing operations have no Dashboard caller.
 
 Generated OpenAPI describes 19 `/api` operations, two setup POST
-operations, and the Messages-bridge `createAnthropicMessage` operation (the
-SSE translator adds `anthropicSSEStream` at M2). The locale bootstrap is
+operations, and the Messages-bridge `createAnthropicMessage` operation,
+whose `text/event-stream` content references the `anthropicSSEStream`
+string schema (raw upstream bytes until commitment, then translated
+Anthropic events). The locale bootstrap is
 public with explicit `security: []`; the other 18 `/api` operations inherit
 operator authentication; the bridge names its `client_key` scheme explicitly
 instead of inheriting. HTML/form,

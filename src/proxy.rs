@@ -400,6 +400,31 @@ fn tool_type_label(family: crate::bridge::ToolFamily) -> &'static str {
     }
 }
 
+/// The streaming translator's request metadata: the client's model for the
+/// `message_start` echo, plus the client-offered tool names (non-Web
+/// families — the same set the buffered response transform echoes
+/// `caller: {"type": "direct"}` on).
+fn messages_stream_meta(
+    payload: &crate::bridge::ChatPayload,
+    request_model: &str,
+) -> crate::bridge::StreamMeta {
+    let use_family = |f: crate::bridge::ToolFamily| {
+        !matches!(
+            f,
+            crate::bridge::ToolFamily::WebSearch | crate::bridge::ToolFamily::WebFetch
+        )
+    };
+    crate::bridge::StreamMeta {
+        client_tool_names: payload
+            .tool_meta
+            .iter()
+            .filter(|m| use_family(m.family))
+            .map(|m| m.name.clone())
+            .collect(),
+        model: request_model.to_owned(),
+    }
+}
+
 /// Record only finalized typed observations. Invalid and unavailable upstream
 /// values are deliberately absent from the existing metrics.
 fn record_observations(
@@ -702,6 +727,7 @@ pub async fn handle(
             inflight_guard,
             request_deadline,
             wait_deadline,
+            None,
         )
     } else {
         let wait_deadline = wait_deadline(&cfg);
@@ -1280,10 +1306,10 @@ pub async fn handle_messages(
     let path_query = "/v1/chat/completions".to_owned();
 
     if wants_stream {
-        // M1 ships the non-streaming bridge; a `stream: true` request rides
-        // the existing wait/heartbeat loop and passes the upstream OpenAI SSE
-        // through untouched. T6 (M2) replaces this return with the
-        // Anthropic SSE translator.
+        // The bridge streams through the same wait/heartbeat loop; upstream
+        // chunks are translated into the Anthropic event sequence (T5/T6),
+        // and a stream that never commits to an event replays the upstream
+        // bytes untouched (the uncommitted-passthrough contract).
         return streaming(
             state,
             cfg.clone(),
@@ -1297,6 +1323,7 @@ pub async fn handle_messages(
             inflight_guard,
             request_deadline,
             wait_deadline(&cfg),
+            Some(messages_stream_meta(&payload, request_model.as_str())),
         );
     }
 
@@ -1495,7 +1522,9 @@ async fn buffered(
 
 /// Streaming: commit to a 200 SSE response immediately and emit `: heartbeat`
 /// comment lines (ignored by every OpenAI SSE client) while we wait for a
-/// slot or ride out 429/5xx, then pipe the upstream stream through.
+/// slot or ride out 429/5xx, then pipe the upstream stream through. On the
+/// Messages bridge the translator turns upstream chunks into Anthropic
+/// events and drops the comment frames once the stream commits (T6).
 #[allow(clippy::too_many_arguments)]
 fn streaming(
     state: Arc<AppState>,
@@ -1510,8 +1539,15 @@ fn streaming(
     inflight_guard: impl Send + 'static,
     request_deadline: Option<RequestDeadline>,
     deadline: Instant,
+    anthropic_sse: Option<crate::bridge::StreamMeta>,
 ) -> Response {
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(16);
+    // The bridge endpoint (T6) translates upstream chunks into Anthropic
+    // events; the OpenAI-wire chat path forwards bytes untouched (None).
+    let translator: std::sync::Arc<std::sync::Mutex<Option<crate::bridge::StreamTranslator>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(
+            anthropic_sse.map(crate::bridge::StreamTranslator::with_meta),
+        ));
 
     tokio::spawn(async move {
         // Holds the handler's in-flight slot until this task — the request's
@@ -1522,13 +1558,28 @@ fn streaming(
         gauge!("nimproxy_active_requests").increment(1.0);
         let deadline_tx = tx.clone();
         let deadline_ctx = ctx.clone();
+        let tr = translator.clone();
         let observer = Arc::new(Mutex::new(None));
         let deadline_observer = observer.clone();
         let work = async move {
             let send = |b: &'static str| {
                 let tx = tx.clone();
-                // Static control frames — no per-send alloc/copy.
-                async move { tx.send(Ok(Bytes::from_static(b.as_bytes()))).await.is_ok() }
+                let tr = tr.clone();
+                // Static control frames — no per-send alloc/copy. Bridge
+                // streams (T6) stay silent once an Anthropic event
+                // committed: heartbeats appear only before commitment.
+                async move {
+                    if let Some(t) = tr.lock().unwrap().as_mut() {
+                        if !t.committed() {
+                            // Uncommitted: control frames stay byte-exact
+                            // for the replay-on-finish passthrough
+                            // contract.
+                            t.push(&Bytes::from_static(b.as_bytes()));
+                        }
+                        return true;
+                    }
+                    tx.send(Ok(Bytes::from_static(b.as_bytes()))).await.is_ok()
+                }
             };
             if !send(": connected\n\n").await {
                 record_request(&ctx, "disconnect");
@@ -1540,8 +1591,7 @@ fn streaming(
                 // permit spans the whole upstream exchange and drops on every
                 // exit from this iteration.
                 let Ok(_permit) = acquire_model_permit(&state, &cfg, &ctx, deadline, || {
-                    tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
-                        .is_ok()
+                    send_control_frame(&tx, &tr)
                 })
                 .await
                 else {
@@ -1554,8 +1604,7 @@ fn streaming(
                     return;
                 };
                 let slot = reserve_slot(&state, cfg.heartbeat, deadline, prefer, || {
-                    tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
-                        .is_ok()
+                    send_control_frame(&tx, &tr)
                 })
                 .await;
                 let Some(slot) = slot else {
@@ -1635,7 +1684,11 @@ fn streaming(
                     tracing::warn!(%status, "upstream rejected request");
                     record_request(&ctx, status.as_str());
                     let _ = tx
-                        .send(Ok(sse_error(&format!("upstream error {status}: {detail}"))))
+                        .send(Ok(stream_error_frame(
+                            &tr,
+                            "upstream_unavailable",
+                            &format!("upstream error {status}: {detail}"),
+                        )))
                         .await;
                     return;
                 }
@@ -1669,7 +1722,13 @@ fn streaming(
                                 finalize_sse_observer(&ctx, &observer, StreamOutcome::Truncated);
                                 tracing::warn!(model = %ctx.model, idle = ?cfg.stream_idle, "upstream stream stalled");
                                 record_request(&ctx, "stall");
-                                let _ = tx.send(Ok(sse_error("upstream stream stalled"))).await;
+                                let _ = tx
+                                    .send(Ok(stream_error_frame(
+                                        &tr,
+                                        "upstream_unavailable",
+                                        "upstream stream stalled",
+                                    )))
+                                    .await;
                                 return;
                             }
                         }
@@ -1688,22 +1747,59 @@ fn streaming(
                                 .as_mut()
                                 .expect("stream observer initialized")
                                 .push(&b);
-                            if tx.send(Ok(b)).await.is_err() {
-                                finalize_sse_observer(&ctx, &observer, StreamOutcome::Disconnected);
-                                record_request(&ctx, "disconnect");
-                                return; // client hung up
+                            // T6: bridge streams hand the client Anthropic
+                            // events, never raw upstream chunks; the chat
+                            // path forwards the chunk untouched.
+                            let frames = {
+                                let mut guard = tr.lock().unwrap();
+                                match guard.as_mut() {
+                                    Some(t) => t.push(&b),
+                                    None => vec![b],
+                                }
+                            };
+                            for frame in frames {
+                                if tx.send(Ok(frame)).await.is_err() {
+                                    finalize_sse_observer(
+                                        &ctx,
+                                        &observer,
+                                        StreamOutcome::Disconnected,
+                                    );
+                                    record_request(&ctx, "disconnect");
+                                    return; // client hung up
+                                }
                             }
                         }
                         Err(e) => {
                             finalize_sse_observer(&ctx, &observer, StreamOutcome::Truncated);
                             tracing::warn!(error = %e, "upstream stream broke mid-response");
                             record_request(&ctx, "stream_error");
-                            let _ = tx.send(Ok(sse_error("upstream stream interrupted"))).await;
+                            let _ = tx
+                                .send(Ok(stream_error_frame(
+                                    &tr,
+                                    "upstream_unavailable",
+                                    "upstream stream interrupted",
+                                )))
+                                .await;
                             return;
                         }
                     }
                 }
 
+                // T6: close the Anthropic stream (message_delta +
+                // message_stop); an uncommitted stream replays its retained
+                // upstream bytes instead — the passthrough contract.
+                let tail = tr
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .map_or(Vec::new(), |t| t.finish());
+                for frame in tail {
+                    if tx.send(Ok(frame)).await.is_err() {
+                        finalize_sse_observer(&ctx, &observer, StreamOutcome::Disconnected);
+                        record_request(&ctx, "disconnect");
+                        return;
+                    }
+                }
                 let completion = finalize_sse_observer(&ctx, &observer, StreamOutcome::Completed);
                 if let (Some(first), Some((c, source))) = (first_chunk, completion) {
                     let gen_secs = first.elapsed().as_secs_f64();
@@ -1728,11 +1824,11 @@ fn streaming(
                 _ = tokio::time::sleep_until(request_deadline.0.into()) => {
                     finalize_sse_observer(&deadline_ctx, &deadline_observer, StreamOutcome::Deadline);
                     record_deadline(&deadline_ctx);
-                    let _ = deadline_tx
-                        .try_send(Ok(sse_error_with_code(
-                            "deadline_exceeded",
-                            "proxy request deadline exceeded",
-                        )));
+                    let _ = deadline_tx.try_send(Ok(stream_error_frame(
+                        &translator,
+                        "deadline_exceeded",
+                        "proxy request deadline exceeded",
+                    )));
                 }
                 _ = work => {}
             }
@@ -1843,6 +1939,53 @@ fn sse_error_with_code(code: &str, message: &str) -> Bytes {
 
 fn sse_error(message: &str) -> Bytes {
     sse_error_with_code("upstream_unavailable", message)
+}
+
+/// Terminal in-stream error frame: the OpenAI-wire proxy envelope on the
+/// chat path; once the bridge translator committed to an Anthropic event,
+/// an Anthropic `error` event instead (T6: after `message_start` the
+/// client no longer parses OpenAI SSE).
+fn stream_error_frame(
+    translator: &std::sync::Arc<std::sync::Mutex<Option<crate::bridge::StreamTranslator>>>,
+    code: &str,
+    message: &str,
+) -> Bytes {
+    if let Some(t) = translator.lock().unwrap().as_mut() {
+        if t.committed() {
+            return t.error_event(code, message);
+        }
+    }
+    sse_error_with_code(code, message)
+}
+
+/// Wait-loop heartbeat (`: heartbeat` comment frame) for the wait/permit
+/// loops. Bridge streams translate through the translator, so a heartbeat
+/// appears only before the stream commits: retained byte-exact while
+/// uncommitted, dropped structurally afterwards (T6). Chat streams forward
+/// the frame to the client directly.
+fn send_control_frame(
+    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    translator: &std::sync::Arc<std::sync::Mutex<Option<crate::bridge::StreamTranslator>>>,
+) -> bool {
+    let (committed, is_bridge) = {
+        let mut guard = translator.lock().unwrap();
+        match guard.as_mut() {
+            Some(t) => (t.committed(), true),
+            None => (false, false),
+        }
+    };
+    if !is_bridge {
+        return tx
+            .try_send(Ok(Bytes::from_static(b": heartbeat\n\n")))
+            .is_ok();
+    }
+    if !committed {
+        let mut guard = translator.lock().unwrap();
+        if let Some(t) = guard.as_mut() {
+            t.push(&Bytes::from_static(b": heartbeat\n\n"));
+        }
+    }
+    true
 }
 
 fn json_response(status: StatusCode, body: Bytes) -> Response {
