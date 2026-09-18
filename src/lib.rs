@@ -86,6 +86,8 @@ pub struct Config {
     pub governor: GovernorSettings,
     /// Explicit, administrator-managed routing policy; absent by default.
     pub racing: Option<racing::RaceStrategy>,
+    /// In-gateway `web_search` provider settings (the Messages bridge, T10).
+    pub web_search: WebSearchSettings,
 }
 
 pub struct GovernorSettings {
@@ -94,6 +96,31 @@ pub struct GovernorSettings {
     pub enabled: bool,
     /// Operator-pinned per-model concurrency caps (model id -> max in-flight).
     pub overrides: BTreeMap<String, usize>,
+}
+
+/// The runtime snapshot of the `web_search` provider settings: the endpoint
+/// the bridge's in-gateway search reads, and its bounds.
+#[derive(Clone)]
+pub struct WebSearchSettings {
+    /// The provider endpoint (validated: http(s), no link-local hosts).
+    pub base_url: String,
+    /// Whether the endpoint answers an RSS feed or a JSON results object.
+    pub format: crate::config::SearchFormat,
+    /// Cap on results per search.
+    pub max_results: u8,
+    /// Per-request provider timeout.
+    pub timeout: Duration,
+}
+
+impl Default for WebSearchSettings {
+    fn default() -> Self {
+        Self {
+            base_url: "https://www.bing.com/search".to_owned(),
+            format: crate::config::SearchFormat::default(),
+            max_results: 5,
+            timeout: Duration::from_secs(30),
+        }
+    }
 }
 
 impl Default for GovernorSettings {
@@ -673,6 +700,10 @@ pub async fn run() {
         .route(routes::API_SETTINGS_SERVER, post(settings::server))
         .route(routes::API_SETTINGS_HISTORY, post(settings::history))
         .route(routes::API_SETTINGS_GOVERNOR, post(settings::governor_cfg))
+        .route(
+            routes::API_SETTINGS_WEB_SEARCH,
+            post(settings::web_search_cfg),
+        )
         .route(routes::API_SETTINGS_USERS, post(settings::users))
         .route(routes::API_SETTINGS_ACCOUNT, post(settings::account))
         .route(routes::API_SETTINGS_LOCALE, post(settings::locale))

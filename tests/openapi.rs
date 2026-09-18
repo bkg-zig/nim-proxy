@@ -69,8 +69,8 @@ fn spec_is_usable() {
         .map(|item| item.as_object().expect("path item").len())
         .sum();
     assert_eq!(
-        operation_count, 22,
-        "19 /api/* operations + the 2 setup operations + the Messages bridge"
+        operation_count, 23,
+        "20 /api/* operations + the 2 setup operations + the Messages bridge"
     );
     assert_eq!(
         paths["/api/locale-bootstrap"]["get"]["security"]
@@ -516,7 +516,8 @@ fn locale_config_response_openapi_fields_are_typed_and_ascii_positioned() {
             "default_locale",
             "governor",
             "history",
-            "limits"
+            "limits",
+            "web_search"
         ]),
         "locale-openapi: ServerSettings required fields stay ASCII-positioned"
     );

@@ -38,7 +38,7 @@ use utoipa::openapi::{
 };
 use utoipa::{Modify, OpenApi, PartialSchema, ToSchema};
 
-use crate::config::{DashboardCfg, GovernorCfg, Limits, Mode, Role, StoredConfig};
+use crate::config::{DashboardCfg, GovernorCfg, Limits, Mode, Role, StoredConfig, WebSearchCfg};
 use crate::history::{HistoryDiagnostics, MetricValue, RollupPoint, Tail};
 use crate::racing_config::RaceStrategy;
 use crate::AppState;
@@ -328,6 +328,8 @@ pub struct ServerSettings {
     pub governor: GovernorCfg,
     pub history: HistorySettings,
     pub limits: Limits,
+    /// The `web_search` provider settings (Messages bridge, T10).
+    pub web_search: WebSearchCfg,
 }
 
 /// Retention setting plus the live state of the history file.
@@ -542,6 +544,7 @@ impl Modify for SecurityAddon {
         crate::settings::server,
         crate::settings::history,
         crate::settings::governor_cfg,
+        crate::settings::web_search_cfg,
         crate::settings::users,
         crate::settings::account,
         crate::settings::locale,
@@ -585,6 +588,7 @@ impl Modify for SecurityAddon {
         Tail,
         UserRow,
         ValidateKeyResponse,
+        WebSearchCfg,
     )),
     // Applies to every operation that does not override it. The two `/setup`
     // routes declare `security()` — an explicit empty list, i.e. "no auth" —
@@ -1663,6 +1667,7 @@ mod tests {
                 enabled: true,
                 overrides: BTreeMap::from([("fixture/model".into(), 8)]),
             },
+            web_search: WebSearchCfg::default(),
             history: HistorySettings {
                 available_from: Some(1_700_000_000),
                 compaction_pending: true,
@@ -2883,6 +2888,7 @@ mod tests {
             dashboard: DashboardCfg::default(),
             default_locale: "en-US".into(),
             governor: GovernorCfg::default(),
+            web_search: WebSearchCfg::default(),
             history: HistorySettings {
                 available_from: None,
                 compaction_pending: false,
@@ -2895,6 +2901,7 @@ mod tests {
         sorted("Limits", &server.limits);
         sorted("DashboardCfg", &server.dashboard);
         sorted("GovernorCfg", &server.governor);
+        sorted("WebSearchCfg", &server.web_search);
         sorted("ServerSettings", &server);
         sorted(
             "ConfigResponse",
