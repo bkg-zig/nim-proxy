@@ -38,6 +38,11 @@ pub const API_SETTINGS_ACCOUNT: &str = "/settings/account";
 pub const API_SETTINGS_LOCALE: &str = "/settings/locale";
 pub const API_SETTINGS_VALIDATE_KEY: &str = "/settings/validate-key";
 
+// Racing API endpoints
+pub const API_RACING_CONFIG: &str = "/racing/config";
+pub const API_RACING_STATS: &str = "/racing/stats";
+pub const API_RACING_RANKED: &str = "/racing/ranked";
+
 pub const HEALTH: &str = "/health";
 pub const LOGIN: &str = "/login";
 pub const LOGOUT: &str = "/logout";
