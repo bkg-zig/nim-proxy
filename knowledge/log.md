@@ -6,6 +6,19 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-07] maintenance — verify the local Chinese catalog at the guard entry point
+
+The local handoff audit reproduced that `locale_v1.py --all` inspected English
+and the public projection but only listed the Chinese filename. The guard now
+validates every production catalog and binds locale metadata to its file.
+Six negative temporary-repository controls first passed incorrectly, then
+failed with the expected check ids after repair. The local `zh-CN` decision
+also distinguishes this customization from planned upstream `zh-Hans` delivery.
+The existing browser matrix does not propagate `--pseudolocale` to its full
+interaction pass; the test strategy now states that limit. See
+[locale guards](decisions/locale-guards.md), [test strategy](testing/test-strategy.md),
+and the [local closure plan](../docs/plans/zh-cn-local-handoff.md).
+
 ## [2026-10-07] feature — zh-CN production locale and dashboard language switch
 
 `zh-CN` is registered in `INSTALLED_LOCALES` with a full catalog validated by

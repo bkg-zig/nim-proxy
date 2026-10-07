@@ -52,8 +52,12 @@ translation was made from, so "still valid, no longer correct" is detectable.
 The one rich `src/web/locales/en-US.json` source is also the authority for the
 generated public fixture. That projection must contain every `setup.*`, every
 `login.*`, and only `common.app_name`; missing, extra, drifted, or non-ASCII
-ordered ids fail. The self-test contains 12 file fixtures and seven in-memory
-projection/schema cases, 19 named negative cases in total.
+ordered ids fail. The self-test contains 12 file fixtures, seven in-memory
+projection/schema cases, and seven temporary-repository controls of the actual
+`--all` entry point. The latter prove that every production catalog's content
+is checked, including missing ids, changed placeholders, stale hashes, and
+locale metadata that disagrees with its filename. Source and public projection
+metadata are pinned to `en-US`. The normal guard inspects both local catalogs.
 
 **Locale preference tag grammar.** Persisted and API-supplied preferences use
 one Rust canonicalizer for the frozen `language[-Script][-REGION]` subset:

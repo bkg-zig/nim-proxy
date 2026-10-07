@@ -83,9 +83,50 @@ Model racing remains a separate research item and is not implemented here.
 
 ## Remaining work
 
-- [ ] Independently review and commit the inherited localization.
-- [ ] Reconcile the local decision and current documentation.
+- [x] Independently review and commit the inherited localization (`a16f044`).
+- [x] Reconcile the local decision and current documentation.
 - [ ] Add/observe missing regression proof where needed, with red → green evidence.
 - [ ] Complete and record missing Rust and browser checks.
 - [ ] Retain screenshots for the owner's visual inspection.
 - [ ] Report commits, fresh checks, limitations, and the upstream PR decision.
+
+## Validator repair proof
+
+`locale_validator_fix` authored the narrow guard repair; the parent agent
+independently reviewed its diff and reran the checks. The added controls run the
+actual `main(["--all"], temporary_root)` with synthetic files. Before repair,
+six corrupted repositories all exited 0 without a diagnostic. After repair,
+missing-id, placeholder, stale-hash, and three metadata-mismatch cases exit 1
+with exactly `completeness`, `placeholders`, `stale`, or `catalog-schema`.
+`--selftest` now passes 26 cases and `--all` reports two checked catalog sets.
+The i18n 452-id/121-self-test, pseudolocale 452-message, formatter 125-case,
+72-row/284-item interaction self-test and local-link guards also passed.
+
+## Pending upstream bug report (not submitted)
+
+No GitHub write is authorized in this local closure. The existing bug form's
+fields are retained here for the discovered pre-existing matrix gap:
+
+- **What happened?** `--all-states --pseudolocale` selects a generated locale
+  for the initial page run but does not pass it into the full interaction
+  matrix. Earlier documentation overstates translated Settings coverage.
+- **Steps to reproduce:** follow `localeArg` into the call to
+  `runInteractionMatrix`, then its call to `runMatrixContext`; `visualLocale`
+  remains its default `null`. Run the command and inspect matrix catalog
+  requests to confirm English. The code path was independently inspected;
+  runtime evidence is not yet claimed for this report.
+- **Auth mode:** Not sure (the form's legacy options do not describe the
+  synthetic configured-store session used by the test harness).
+- **How are you running it?** Docker / docker compose (isolated test container).
+- **Version or commit:** inherited from v0.6.6 base `330efc4`.
+- **Client / harness:** `node scripts/render_check.js --all-states --pseudolocale`.
+- **Relevant logs:** no credentials or production logs involved; static path
+  evidence above, runtime matrix check pending.
+- **Before submitting:** duplicate-issue search pending; no API keys,
+  passwords, or session cookies are included.
+
+Model-racing disposition: defer implementation. The inherited research reports
+additional per-key request consumption and a model-routing contract change;
+it supplies no measured benefit for this deployment. Those tradeoffs warrant a
+separate design and workload evidence before changing the proxy data plane.
+Its estimates and external implementation claims were not revalidated here.

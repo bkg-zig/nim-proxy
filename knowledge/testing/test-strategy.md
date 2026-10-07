@@ -156,14 +156,17 @@ that proof.
 - **Number, date, and duration formatting:**
   `TZ=UTC LC_ALL=en_US.UTF-8 node scripts/formatter_fixture.js --check`.
 - **Catalog and UI text:** `python3 scripts/check_i18n.py --selftest`, then
-  `python3 scripts/check_i18n.py`; the current selftest has 102 negative or
+  `python3 scripts/check_i18n.py`; the current selftest has 121 negative or
   control cases, including void-element ownership and Settings source classes.
   When English changes, also run
   `python3 scripts/gen_pseudolocale.py --check`.
 - **Locale files:** `python3 scripts/locale_v1.py --selftest` and
   `python3 scripts/locale_v1.py --all`. When the public English projection
   changes, run `python3 scripts/locale_v1.py --update-public` and verify the
-  fixture diff. `en-XA` is generated in memory for render tests and must never
+  fixture diff. `--all` checks every production catalog against the canonical
+  source and binds its locale metadata to its filename; the self-test exercises
+  that directory entry point with a valid pair and six exact failure controls.
+  `en-XA` is generated in memory for render tests and must never
   be committed as a production locale.
 - **Pacing, pool, dispatch, and affinity:** use the enforcing mock and load
   harness; one upstream violation is failure. Follow the setup prerequisites
@@ -410,10 +413,13 @@ This is the only gate that proves the page *runs*: `cargo test` asserts on
 served HTML text and `node --check` proves only that it parses. See
 [render-gate](../decisions/render-gate.md) and
 [message-catalog-and-escaping](../decisions/message-catalog-and-escaping.md).
-Run the complete Settings matrix under `--all-states --pseudolocale` after
-catalog work: it covers accessibility text, dialogs, validation/toast state,
-raw API errors, the catalog fallback for an unusable error body, and exact
-grouped Settings values above 10,000.
+Run `--all-states --pseudolocale` after catalog work. Its initial page run uses
+the generated locale, but the subsequent interaction matrix currently remains
+`en-US`: the selected locale is not passed to `runInteractionMatrix`.
+Consequently, its Settings assertions for accessibility, dialogs, validation,
+API errors, fallback copy, and exact grouped integers do not establish full
+translated-state coverage. The [local closure plan](../../docs/plans/zh-cn-local-handoff.md)
+records this pre-existing proof gap separately from the local Chinese action.
 Page-specific render assertions must compare rendered owned text with the
 selected catalog, not en-US literals; otherwise a real `en-XA` selection makes
 the harness reject correctly localized output before the untranslated-text

@@ -36,11 +36,14 @@ The checks, and why each exists:
 - **length caps** — opt-in per key, for strings in width-constrained elements.
 """
 import argparse
+import contextlib
 import html
+import io
 import json
 import pathlib
 import re
 import sys
+import tempfile
 
 # One definition of the never-translate list, not two. check_i18n guards its
 # main(), so importing it is free of side effects, and a drifting second copy
@@ -211,7 +214,9 @@ def production_locale_problems(locale_names: list[str]) -> list:
     ]
 
 
-def catalog_text_problems(raw: str, name: str, rich: bool) -> list:
+def catalog_text_problems(
+    raw: str, name: str, rich: bool, expected_locale: str | None = None,
+) -> list:
     """Preserve JSON pairs so duplicate ids and authored order stay observable."""
     class Pairs(list):
         pass
@@ -241,7 +246,11 @@ def catalog_text_problems(raw: str, name: str, rich: bool) -> list:
         return problems + [("catalog-schema", f"{name}: catalog must be an object")]
     top = dict(root)
     expected_top = {"locale", "messages", "state"} if rich else {"locale", "messages"}
-    if set(top) != expected_top or top.get("locale") not in PRODUCTION_LOCALES:
+    if (
+        set(top) != expected_top
+        or top.get("locale") not in PRODUCTION_LOCALES
+        or (expected_locale is not None and top.get("locale") != expected_locale)
+    ):
         problems.append((
             "catalog-schema",
             f"{name}: top-level catalog schema is invalid",
@@ -414,17 +423,78 @@ def selftest() -> int:
         else:
             print(f"  ok  {want:28} trips {want}")
 
+    # Exercise the same --all entry point as CI with a second installed locale.
+    # Synthetic files keep the failure controls away from authored translations.
+    repository_source = {
+        **source,
+        "messages": dict(sorted(source["messages"].items())),
+    }
+    production_cases = {
+        "all-valid-production": None,
+        "all-production-missing-id": "completeness",
+        "all-production-placeholder": "placeholders",
+        "all-production-stale": "stale",
+        "all-production-locale-mismatch": "catalog-schema",
+        "all-source-locale-mismatch": "catalog-schema",
+        "all-public-locale-mismatch": "catalog-schema",
+    }
+    with tempfile.TemporaryDirectory(prefix="locale-v1-selftest-") as directory:
+        root = pathlib.Path(directory)
+        locale_dir = root / "src/web/locales"
+        locale_dir.mkdir(parents=True)
+        fixture_dir = root / "tests/fixtures/locales"
+        fixture_dir.mkdir(parents=True)
+        for case, want in production_cases.items():
+            source_candidate = {**repository_source}
+            public_candidate = public_projection(repository_source)
+            if case == "all-source-locale-mismatch":
+                source_candidate["locale"] = "zh-CN"
+            elif case == "all-public-locale-mismatch":
+                public_candidate["locale"] = "zh-CN"
+            (locale_dir / "en-US.json").write_text(
+                json.dumps(source_candidate), encoding="utf-8",
+            )
+            (fixture_dir / "public-en-US.json").write_text(
+                json.dumps(public_candidate), encoding="utf-8",
+            )
+            candidate = json.loads(json.dumps(repository_source))
+            candidate["locale"] = "zh-CN"
+            if want == "completeness":
+                del candidate["messages"]["app.greeting"]
+            elif want == "placeholders":
+                candidate["messages"]["app.count"]["en"] = "{renamed} of {total}"
+            elif want == "stale":
+                candidate["messages"]["app.greeting"]["hash"] = "outdated"
+            elif case == "all-production-locale-mismatch":
+                candidate["locale"] = "en-US"
+            (locale_dir / "zh-CN.json").write_text(
+                json.dumps(candidate), encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(["--all"], root)
+            checks = set(re.findall(r"^  \[([^\]]+)\]", output.getvalue(), re.M))
+            expected_checks = {want} if want else set()
+            if status != int(want is not None) or checks != expected_checks:
+                failures.append(
+                    f"{case}: expected exit {int(want is not None)} and "
+                    f"checks {sorted(expected_checks)}, got exit {status} and "
+                    f"{sorted(checks) or 'nothing'}"
+                )
+            else:
+                print(f"  ok  {case:28} " + (f"trips {want}" if want else "passes"))
+
     if failures:
         print("\nselftest FAILED:")
         for f in failures:
             print("  -", f)
         return 1
-    total = len(expected) + len(projection_cases) + 1 + len(text_cases)
+    total = len(expected) + len(projection_cases) + 1 + len(text_cases) + len(production_cases)
     print(f"\nselftest ok — {total} cases, every check observed to fail")
     return 0
 
 
-def main() -> int:
+def main(argv=None, root: pathlib.Path = ROOT) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("locale", nargs="*", type=pathlib.Path)
     ap.add_argument("--all", action="store_true", help="validate the repository catalogs")
@@ -434,52 +504,61 @@ def main() -> int:
         action="store_true",
         help="regenerate the public en-US fixture from the canonical source",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.selftest:
         return selftest()
 
-    source_path = ROOT / "src/web/locales/en-US.json"
+    source_path = root / "src/web/locales/en-US.json"
     source = load(source_path)
-    public_path = FIXTURES / "public-en-US.json"
+    public_path = root / "tests/fixtures/locales/public-en-US.json"
     if args.update_public:
         public_path.write_text(public_projection_text(source))
         print(
             "wrote "
             f"{len(public_projection(source)['messages'])} messages to "
-            f"{public_path.relative_to(ROOT)}"
+            f"{public_path.relative_to(root)}"
         )
         return 0
-    targets = list(args.locale)
+    targets = [(path, None) for path in args.locale]
     problems = []
     if args.all:
         problems += catalog_text_problems(
             source_path.read_text(),
-            str(source_path.relative_to(ROOT)),
+            str(source_path.relative_to(root)),
             True,
+            "en-US",
         )
         problems += catalog_text_problems(
             public_path.read_text(),
-            str(public_path.relative_to(ROOT)),
+            str(public_path.relative_to(root)),
             False,
+            "en-US",
         )
-        problems += validate(source, source, str(source_path.relative_to(ROOT)))
+        problems += validate(source, source, str(source_path.relative_to(root)))
         problems += public_projection_problems(
             source["messages"],
             load(public_path),
         )
-        production_names = [
-            path.stem
-            for path in sorted((ROOT / "src/web/locales").glob("*.json"))
+        production_paths = sorted((root / "src/web/locales").glob("*.json"))
+        targets += [
+            (path, path.stem)
+            for path in production_paths
+            if path != source_path
         ]
+        production_names = [path.stem for path in production_paths]
         production_names += [
             path.stem.removeprefix("setup-")
-            for path in sorted((ROOT / "locales").glob("*.json"))
+            for path in sorted((root / "locales").glob("*.json"))
         ]
         problems += production_locale_problems(production_names)
-    for path in targets:
-        problems += catalog_text_problems(path.read_text(), path.name, True)
-        problems += validate(source, load(path), path.name)
+    for path, expected_locale in targets:
+        schema_problems = catalog_text_problems(
+            path.read_text(), path.name, True, expected_locale,
+        )
+        problems += schema_problems
+        if not any(check == "catalog-schema" for check, _ in schema_problems):
+            problems += validate(source, load(path), path.name)
 
     if problems:
         print(f"{len(problems)} problem(s):")
