@@ -6,6 +6,16 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-07] feature — zh-CN production locale and dashboard language switch
+
+`zh-CN` is registered in `INSTALLED_LOCALES` with a full catalog validated by
+`locale-v1` (hashes copied from the en-US source, frozen tokens and unit
+abbreviations kept verbatim). `PRODUCTION_LOCALES` in `scripts/locale_v1.py`
+now lists `en-US` and `zh-CN`; e2e and the locale-precedence browser probe
+expect both in the bootstrap. The dashboard sidebar gains a language switch
+that sets the caller's own preference through `POST /api/settings/account`.
+See [locale guards](decisions/locale-guards.md).
+
 ## [2026-08-24] maintenance — reconcile governing documentation
 
 Contributor guidance now describes the split embedded presentation layer and

@@ -13,8 +13,9 @@ renders Dashboard, Login, or Setup HTML; `public_asset()` and
 `operator_asset()` expose fixed byte slices with exact content types. The Rust
 binary embeds every source under `src/web/`. There is no frontend package
 manager, build step, runtime filesystem dependency, or network dependency.
-The same module parses the one rich English catalog once and projects
-ASCII-sorted plain-string public and operator wire catalogs from it.
+The same module parses each registered rich catalog once and projects
+ASCII-sorted plain-string public and operator wire catalogs from it. English
+remains the canonical authoring source for ids, placeholders, and hashes.
 
 ## Source and route ownership
 
@@ -28,7 +29,8 @@ ASCII-sorted plain-string public and operator wire catalogs from it.
   registered inside the same post-setup session gate as `/` and `/dash`; that
   gate runs before locale lookup.
 - `GET /api/locale-bootstrap` is public and returns exactly the compiled
-  production registry (`en-US`) plus the validated persisted server default.
+  production registry (`en-US`, `zh-CN` in the local build) plus the validated
+  persisted server default.
   That registry is the same embedded definition that supplies both public and
   operator catalog bytes and catalog-route lookup; accepted URL spellings are
   first canonicalized, so `en-us` serves `en-US` while uninstalled locales do

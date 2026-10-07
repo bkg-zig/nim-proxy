@@ -26,14 +26,21 @@ const LOGIN: &str = include_str!("web/login.html");
 const SETUP: &str = include_str!("web/setup.html");
 const NIM_PROXY_ICON: &str = include_str!("web/icons/nim-proxy.svg");
 const EN_US_SOURCE: &str = include_str!("web/locales/en-US.json");
+const ZH_CN_SOURCE: &str = include_str!("web/locales/zh-CN.json");
 
 pub const DEFAULT_LOCALE: &str = "en-US";
 /// The one source of truth for advertised, accepted, and embedded locales.
 /// Add a locale here only with its embedded authoring catalog.
-const INSTALLED_LOCALES: &[InstalledLocale] = &[InstalledLocale {
-    id: DEFAULT_LOCALE,
-    source: EN_US_SOURCE,
-}];
+const INSTALLED_LOCALES: &[InstalledLocale] = &[
+    InstalledLocale {
+        id: DEFAULT_LOCALE,
+        source: EN_US_SOURCE,
+    },
+    InstalledLocale {
+        id: "zh-CN",
+        source: ZH_CN_SOURCE,
+    },
+];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LocaleError {

@@ -1084,3 +1084,26 @@ document.body.hidden = false;
   await pollNow();
   setInterval(pollNow, POLL_MS);
 })();
+
+/* sidebar language switch: persist the caller's own preference, then reload
+   so every catalog-backed string re-renders from the new catalog */
+$('localeSwitch')?.addEventListener('click', async () => {
+  const btn = $('localeSwitch');
+  const next = document.documentElement.lang === 'zh-CN' ? 'en-US' : 'zh-CN';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/settings/account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'locale', locale: next }),
+    });
+    // an expired session reloads into the login page instead of failing silently
+    if (r.status === 401 || r.ok) { location.reload(); return; }
+    throw new Error(String(r.status));
+  } catch (e) {
+    btn.disabled = false;
+    btn.classList.add('failed');
+    setMessageAttr(btn, 'title', 'dashboard.nav.locale.failed');
+    console.error(e);
+  }
+});

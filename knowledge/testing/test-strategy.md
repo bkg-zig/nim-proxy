@@ -144,7 +144,7 @@ that proof.
   with separate runs proving an explicit user override and a null override
   falling back to the server default. The probe mutates only verified real
   responses at the existing CDP response boundary; production remains
-  `en-US`-only.
+  `en-US` plus `zh-CN`.
   The escape probe enforces the id/descriptor context-owned-sink contract:
   lexical resolver isolation, descriptor coercion refusal and one HTML
   resolver, the exact four-attribute

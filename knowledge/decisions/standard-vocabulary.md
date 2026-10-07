@@ -164,7 +164,7 @@ retired `rpm total` run.
   `gen_pseudolocale.py` was accenting the frozen tokens, so `en-XA` rendered
   `NÎM` and `ŦŦƑŦ` — a string no real locale would produce, in the one locale
   generated to prove layout. The generator now protects them and emits it only
-  to test consumers; production ships only `en-US`.
+  to test consumers; production ships `en-US` and `zh-CN`.
 - **What is still not checkable:** whether a *new* label is standard. That
   needs a person, and this page is what they check against.
 - **The context bundle mostly disappears.** A per-message translator glossary

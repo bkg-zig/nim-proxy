@@ -370,9 +370,11 @@ config block is ignored. The config store remains schema v1; the new server
 locale defaults to `en-US`, and each user's optional locale defaults to no
 override.
 
-The 0.6.6 interface ships in `en-US` only. Locale preference and server-default
-API contracts are present for forward compatibility, but the only installed
-production locale is `en-US`; the generated `en-XA` pseudolocale is test-only.
+This local build installs `en-US` and `zh-CN`. The sidebar language button
+saves the signed-in user's own preference and reloads the interface; it does
+not change the server default used by setup and login. The generated `en-XA`
+pseudolocale is test-only. Upstream v0.6.6 shipped English only; the local
+`zh-CN` choice is documented in the [locale decision](knowledge/decisions/locale-guards.md#local-zh-cn-build-2026-10-07).
 
 ## FAQ & limitations
 

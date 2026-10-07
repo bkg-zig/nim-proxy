@@ -53,6 +53,7 @@ INLINE_OPEN = {"{b}"}
 INLINE_CLOSE = {"{/b}"}
 INLINE_TOKEN = re.compile(r"\{/?b\}")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")
+PRODUCTION_LOCALES = {"en-US", "zh-CN"}
 
 
 def placeholders(text: str) -> set:
@@ -199,12 +200,12 @@ def public_projection_text(source: dict) -> str:
 
 
 def production_locale_problems(locale_names: list[str]) -> list:
-    """Production embeds exactly en-US; generated en-XA never ships."""
-    unsupported = sorted({name for name in locale_names if name != "en-US"})
+    """Production embeds en-US and zh-CN; generated en-XA never ships."""
+    unsupported = sorted({name for name in locale_names if name not in PRODUCTION_LOCALES})
     return [
         (
             "production-pseudolocale",
-            f"production locale registry contains {name}; only en-US may ship",
+            f"production locale registry contains {name}; only {sorted(PRODUCTION_LOCALES)} may ship",
         )
         for name in unsupported
     ]
@@ -240,7 +241,7 @@ def catalog_text_problems(raw: str, name: str, rich: bool) -> list:
         return problems + [("catalog-schema", f"{name}: catalog must be an object")]
     top = dict(root)
     expected_top = {"locale", "messages", "state"} if rich else {"locale", "messages"}
-    if set(top) != expected_top or top.get("locale") != "en-US":
+    if set(top) != expected_top or top.get("locale") not in PRODUCTION_LOCALES:
         problems.append((
             "catalog-schema",
             f"{name}: top-level catalog schema is invalid",

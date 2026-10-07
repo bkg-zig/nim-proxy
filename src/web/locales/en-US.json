@@ -748,6 +748,21 @@
       "en": "Click to freeze/resume the selected time range",
       "hash": "c08680d1"
     },
+    "dashboard.nav.locale.failed": {
+      "en": "Language switch failed. Try again.",
+      "desc": "Tooltip shown on the language switch button when saving the language preference failed.",
+      "hash": "d66a9a97"
+    },
+    "dashboard.nav.locale.switch": {
+      "en": "中文",
+      "desc": "Language switch button in the sidebar footer. It names the OTHER language the click switches to, written in that language: en-US shows the Chinese name, zh-CN shows English.",
+      "hash": "72726d88"
+    },
+    "dashboard.nav.locale.tooltip": {
+      "en": "Switch interface language",
+      "desc": "Tooltip for the language switch button.",
+      "hash": "2c2ee640"
+    },
     "dashboard.nav.tab.capacity": {
       "en": "Capacity",
       "hash": "ae65d096"

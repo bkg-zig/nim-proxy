@@ -5831,7 +5831,7 @@ async fn locale_catalog_routes_are_gated() {
                 let body = response.text().await.unwrap();
                 if route.path == "/api/locale-bootstrap" {
                     assert_eq!(
-                        body, r#"{"installed_locales":["en-US"],"server_default":"en-US"}"#,
+                        body, r#"{"installed_locales":["en-US","zh-CN"],"server_default":"en-US"}"#,
                         "locale-routes:bootstrap-bytes"
                     );
                 } else {
@@ -6260,7 +6260,7 @@ async fn locale_preferences_are_fail_closed() {
     let bootstrap_bytes = bootstrap.bytes().await.unwrap();
     if bootstrap_status != 200
         || bootstrap_bytes.as_ref()
-            != br#"{"installed_locales":["en-US"],"server_default":"en-US"}"#
+            != br#"{"installed_locales":["en-US","zh-CN"],"server_default":"en-US"}"#
     {
         failures.push(format!(
             "locale-bootstrap: persisted default not reflected exactly: status={bootstrap_status} body={}",

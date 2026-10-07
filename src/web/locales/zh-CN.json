@@ -1,0 +1,1976 @@
+{
+  "locale": "zh-CN",
+  "state": "Source",
+  "messages": {
+    "common.app_name": {
+      "en": "NIM Proxy",
+      "desc": "Product name.",
+      "hash": "1e2b099a"
+    },
+    "dashboard.brand.proxy": {
+      "en": "Proxy",
+      "hash": "a68ee416"
+    },
+    "dashboard.capacity.col.429s": {
+      "en": "429 次",
+      "desc": "Column header. '429' is an HTTP status and must survive verbatim.",
+      "hash": "e3aeda21"
+    },
+    "dashboard.capacity.col.current_rate": {
+      "en": "当前速率",
+      "desc": "Column header. The key's instantaneous rate against its configured limit.",
+      "hash": "0e80e3ff"
+    },
+    "dashboard.capacity.empty.no_capacity_data": {
+      "en": "该时间范围内无容量数据",
+      "hash": "30f6f8f5"
+    },
+    "dashboard.capacity.hero.saturation": {
+      "en": "饱和度",
+      "hash": "993f024b"
+    },
+    "dashboard.capacity.hero.throttling": {
+      "en": "限流",
+      "hash": "06222d69"
+    },
+    "dashboard.capacity.history.no_data.few": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'few' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "fce1bc1e"
+    },
+    "dashboard.capacity.history.no_data.many": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'many' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "fce1bc1e"
+    },
+    "dashboard.capacity.history.no_data.one": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'one' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. This is the singular English uses for exactly 1.",
+      "hash": "c0adc7d6"
+    },
+    "dashboard.capacity.history.no_data.other": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'other' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. English uses this form for every count except 1, including 0.",
+      "hash": "fce1bc1e"
+    },
+    "dashboard.capacity.history.no_data.two": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'two' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "fce1bc1e"
+    },
+    "dashboard.capacity.history.no_data.zero": {
+      "en": "{n} 个区间无容量数据",
+      "desc": "CLDR plural category 'zero' of the note about intervals whose configured capacity is unknown. {n} is the count and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "fce1bc1e"
+    },
+    "dashboard.capacity.history.shortfall": {
+      "en": "峰值缺口 · rpm",
+      "desc": "Unit label under the Capacity history figure: the largest amount by which demand exceeded the capacity configured at the time. 'rpm' is a unit and must survive verbatim; '·' is a separator.",
+      "hash": "037f087b"
+    },
+    "dashboard.capacity.history.title": {
+      "en": "容量历史",
+      "hash": "0e9d9c58"
+    },
+    "dashboard.capacity.history.utilization": {
+      "en": "平均 {avg} · 峰值 {peak}（相对当时的容量）",
+      "desc": "Footer under the Capacity history figure. {avg} and {peak} are already-formatted percentages. 'at the time' means against the capacity configured then, not today's. Lowercase note, not a heading.",
+      "hash": "32d932f7"
+    },
+    "dashboard.capacity.keyutil.heading": {
+      "en": "密钥利用率",
+      "hash": "c7487387"
+    },
+    "dashboard.capacity.note.current_vs_capacity": {
+      "en": "当前速率 / 总容量",
+      "desc": "Note beside the Saturation heading, explaining what the percentage divides: the pool's current request rate over its total configured capacity. Lowercase note, not a heading.",
+      "hash": "61534260"
+    },
+    "dashboard.capacity.note.enabled_keys.few": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'few' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "8d762678"
+    },
+    "dashboard.capacity.note.enabled_keys.many": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'many' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "8d762678"
+    },
+    "dashboard.capacity.note.enabled_keys.one": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'one' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. This is the singular English uses for exactly 1.",
+      "hash": "9aae9534"
+    },
+    "dashboard.capacity.note.enabled_keys.other": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'other' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. English uses this form for every count except 1, including 0.",
+      "hash": "8d762678"
+    },
+    "dashboard.capacity.note.enabled_keys.two": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'two' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "8d762678"
+    },
+    "dashboard.capacity.note.enabled_keys.zero": {
+      "en": "{n} 个已启用密钥",
+      "desc": "CLDR plural category 'zero' of the sub-label under the saturation bar. {n} is the count of enabled upstream NIM API keys and must stay a placeholder. English distinguishes only 'one' and 'other', so this form repeats the English of 'other' — do not assume the categories are identical in your language.",
+      "hash": "8d762678"
+    },
+    "dashboard.capacity.note.rpm_available": {
+      "en": "rpm 可用",
+      "desc": "Follows a number in the saturation footer: how much of the pool's per-minute capacity is still unused. 'rpm' is a unit and must survive verbatim; only 'available' is translated.",
+      "hash": "f1a43cbe"
+    },
+    "dashboard.capacity.perkey.heading": {
+      "en": "按密钥",
+      "hash": "95898667"
+    },
+    "dashboard.capacity.ratelimit.heading": {
+      "en": "每分钟限流命中次数",
+      "hash": "602570e6"
+    },
+    "dashboard.capacity.row.session_affinity": {
+      "en": "会话亲和",
+      "hash": "0596f708"
+    },
+    "dashboard.capacity.row.slots_in_use": {
+      "en": "已启用密钥",
+      "hash": "226de726"
+    },
+    "dashboard.capacity.slot": {
+      "en": "槽位 {n}",
+      "hash": "18616a78"
+    },
+    "dashboard.chart.active": {
+      "en": "活跃",
+      "hash": "92340695"
+    },
+    "dashboard.chart.disconnects": {
+      "en": "断开连接",
+      "hash": "5c92edf8"
+    },
+    "dashboard.chart.errors": {
+      "en": "错误",
+      "hash": "cb702378"
+    },
+    "dashboard.chart.median": {
+      "en": "中位数",
+      "hash": "7896a617"
+    },
+    "dashboard.chart.p95": {
+      "en": "p95",
+      "hash": "f771f4d3"
+    },
+    "dashboard.chart.queued": {
+      "en": "排队中",
+      "hash": "661ff40a"
+    },
+    "dashboard.chart.requests_per_min": {
+      "en": "请求/min",
+      "hash": "ee05a90c"
+    },
+    "dashboard.chart.success": {
+      "en": "成功",
+      "hash": "c88a0b90"
+    },
+    "dashboard.clients.depth.heading": {
+      "en": "对话深度",
+      "hash": "786c066b"
+    },
+    "dashboard.clients.depth.note": {
+      "en": "平均消息数 / 请求",
+      "hash": "3c610ce6"
+    },
+    "dashboard.clients.maxtok.heading": {
+      "en": "请求的输出上限",
+      "hash": "c03bef01"
+    },
+    "dashboard.clients.maxtok.note": {
+      "en": "平均 max_tokens / 请求",
+      "desc": "max_tokens is an API parameter name and must survive verbatim.",
+      "hash": "e188f939"
+    },
+    "dashboard.clients.sampling.heading": {
+      "en": "采样参数特征",
+      "hash": "97f6f2cb"
+    },
+    "dashboard.clients.sampling.note": {
+      "en": "平均 temperature",
+      "desc": "The model sampling parameter, not a physical temperature.",
+      "hash": "6b417a81"
+    },
+    "dashboard.clients.streammix.heading": {
+      "en": "流式占比",
+      "hash": "5c1a4d52"
+    },
+    "dashboard.clients.streammix.note": {
+      "en": "% 流式",
+      "hash": "0c0b2363"
+    },
+    "dashboard.clients.tile.avg_messages": {
+      "en": "平均消息数 / 请求",
+      "hash": "a983f199"
+    },
+    "dashboard.clients.tile.avg_tools": {
+      "en": "平均工具数 / 请求",
+      "hash": "6dca1f1e"
+    },
+    "dashboard.clients.tile.clients": {
+      "en": "客户端",
+      "hash": "65a72565"
+    },
+    "dashboard.clients.tile.requests_using_tools": {
+      "en": "使用工具的请求",
+      "hash": "59ea0958"
+    },
+    "dashboard.clients.tile.streaming_share": {
+      "en": "流式占比",
+      "hash": "5c1a4d52"
+    },
+    "dashboard.clients.toolint.heading": {
+      "en": "工具使用强度",
+      "hash": "728b0c45"
+    },
+    "dashboard.clients.toolint.note": {
+      "en": "平均工具数 / 请求",
+      "hash": "d8668050"
+    },
+    "dashboard.common.col.client": {
+      "en": "客户端",
+      "desc": "Table column header. The calling agent or tool, not an end user.",
+      "hash": "0c77fe09"
+    },
+    "dashboard.common.col.count": {
+      "en": "次数",
+      "desc": "Table column header. Number of requests with this outcome.",
+      "hash": "37bac495"
+    },
+    "dashboard.common.col.key": {
+      "en": "密钥",
+      "desc": "Table column header. An upstream NIM API key. Not a keyboard key or a map key.",
+      "hash": "99a52df3"
+    },
+    "dashboard.common.col.model": {
+      "en": "模型",
+      "desc": "Table column header. The model identifier for the row.",
+      "hash": "5e2c614c"
+    },
+    "dashboard.common.col.reason": {
+      "en": "原因",
+      "desc": "Table column header. Why a request did not return 200.",
+      "hash": "f81ab834"
+    },
+    "dashboard.common.col.requests": {
+      "en": "请求数",
+      "desc": "Table column header. Count of requests in the selected time range.",
+      "hash": "ada27592"
+    },
+    "dashboard.common.col.share": {
+      "en": "占比",
+      "desc": "Table column header. This row's percentage of the total. Noun, never the verb.",
+      "hash": "29887a5f"
+    },
+    "dashboard.common.col.streaming": {
+      "en": "流式",
+      "desc": "Share of this client's requests that used streaming responses.",
+      "hash": "a951c594"
+    },
+    "dashboard.common.col.tokens_in": {
+      "en": "输入 token",
+      "desc": "Prompt tokens.",
+      "hash": "0aae0f75"
+    },
+    "dashboard.common.col.tokens_out": {
+      "en": "输出 token",
+      "desc": "Completion tokens generated.",
+      "hash": "da9a58f8"
+    },
+    "dashboard.common.empty.history_unavailable": {
+      "en": "所选时间范围内无可用历史数据",
+      "desc": "Range status when history exists globally but no usable observation covers the selected interval.",
+      "hash": "e2aca469"
+    },
+    "dashboard.common.empty.no_completed_requests": {
+      "en": "暂无已完成的请求",
+      "hash": "597d8faa"
+    },
+    "dashboard.common.empty.no_data_in_range": {
+      "en": "所选时间范围内无数据",
+      "hash": "458e9291"
+    },
+    "dashboard.common.empty.no_data_yet": {
+      "en": "暂无数据",
+      "hash": "e2e18a76"
+    },
+    "dashboard.common.empty.no_keys_configured": {
+      "en": "未配置密钥",
+      "hash": "8db382fc"
+    },
+    "dashboard.common.empty.no_traffic": {
+      "en": "暂无流量",
+      "hash": "aaef1f94"
+    },
+    "dashboard.common.kpi.delta_tooltip": {
+      "en": "本时间范围后半段对比前半段",
+      "hash": "77d91f0f"
+    },
+    "dashboard.common.kpi.success_rate": {
+      "en": "成功率",
+      "desc": "KPI label. Share of requests that returned 200.",
+      "hash": "49da60f8"
+    },
+    "dashboard.common.note.selected_time_range": {
+      "en": "所选时间范围",
+      "desc": "Sub-label under a KPI number: the figure covers the time range currently selected in the topbar, not all history.",
+      "hash": "59e32cdb"
+    },
+    "dashboard.common.note.tokens_out": {
+      "en": "输出 token",
+      "hash": "6cfcdef3"
+    },
+    "dashboard.common.per_client.heading": {
+      "en": "按客户端",
+      "hash": "391351c8"
+    },
+    "dashboard.common.row.active_now": {
+      "en": "当前活跃",
+      "desc": "Requests in flight at this instant, not a windowed aggregate.",
+      "hash": "441658c6"
+    },
+    "dashboard.common.row.dropped": {
+      "en": "已丢弃",
+      "desc": "Requests shed under overload.",
+      "hash": "739f68fe"
+    },
+    "dashboard.common.row.error_rate": {
+      "en": "错误率",
+      "desc": "Live-panel label beside Active now and Queued: the share of requests in the selected time range that did not return 2xx. Noun phrase, not an imperative.",
+      "hash": "33a22472"
+    },
+    "dashboard.common.row.failed_logins": {
+      "en": "登录失败",
+      "hash": "c4b167af"
+    },
+    "dashboard.common.row.queued": {
+      "en": "排队中",
+      "hash": "661ff40a"
+    },
+    "dashboard.common.row.rate_limit_cooldowns": {
+      "en": "限流冷却",
+      "hash": "5f009330"
+    },
+    "dashboard.common.row.streaming": {
+      "en": "流式",
+      "hash": "a951c594"
+    },
+    "dashboard.common.row.unauthorized": {
+      "en": "未授权",
+      "hash": "d089c8a9"
+    },
+    "dashboard.common.sort_hint": {
+      "en": "点击列标题排序",
+      "hash": "3334d184"
+    },
+    "dashboard.common.status.bad_gateway_502": {
+      "en": "网关错误（502）",
+      "desc": "Non-success reason. '502' must survive verbatim.",
+      "hash": "1c52523b"
+    },
+    "dashboard.common.status.bad_request_400": {
+      "en": "请求错误（400）",
+      "desc": "Non-success reason. '400' must survive verbatim.",
+      "hash": "3ce1cfb4"
+    },
+    "dashboard.common.status.client_disconnected": {
+      "en": "客户端断开连接",
+      "desc": "Non-success reason: the calling client closed the connection before the response finished.",
+      "hash": "61fcc9b2"
+    },
+    "dashboard.common.status.client_error_4xx": {
+      "en": "客户端错误（4xx）",
+      "desc": "Outcome band for 4xx statuses other than 429. '4xx' is an HTTP status class and must survive verbatim.",
+      "hash": "c2b42c93"
+    },
+    "dashboard.common.status.disconnect": {
+      "en": "连接断开",
+      "desc": "Outcome band: the client went away before the response finished. Noun, not the imperative verb.",
+      "hash": "acfc5be7"
+    },
+    "dashboard.common.status.forbidden_403": {
+      "en": "禁止访问（403）",
+      "desc": "Non-success reason. '403' must survive verbatim.",
+      "hash": "ae88f5b2"
+    },
+    "dashboard.common.status.not_found_404": {
+      "en": "未找到（404）",
+      "desc": "Non-success reason. '404' must survive verbatim.",
+      "hash": "8bcbdab7"
+    },
+    "dashboard.common.status.rate_limited": {
+      "en": "被限流",
+      "desc": "Outcome band: requests the upstream rejected with 429. Past participle describing the requests.",
+      "hash": "a06130a5"
+    },
+    "dashboard.common.status.rate_limited_429": {
+      "en": "被限流（429）",
+      "desc": "'429' must survive verbatim.",
+      "hash": "2d8d2785"
+    },
+    "dashboard.common.status.stream_error": {
+      "en": "流式错误",
+      "desc": "Non-success reason: the upstream stream failed mid-response.",
+      "hash": "38f63d7c"
+    },
+    "dashboard.common.status.stream_stalled": {
+      "en": "流式停滞",
+      "desc": "Non-success reason: the upstream stopped emitting tokens and the request was abandoned.",
+      "hash": "2845f98c"
+    },
+    "dashboard.common.status.success": {
+      "en": "成功",
+      "desc": "Outcome band and stacked-chart series: requests that returned a 2xx status. Noun.",
+      "hash": "c88a0b90"
+    },
+    "dashboard.common.status.timeout_stall": {
+      "en": "超时 / 停滞",
+      "desc": "Outcome band grouping upstream timeouts (504) with stalled streams. Two nouns joined by a slash.",
+      "hash": "efe2e882"
+    },
+    "dashboard.common.status.unauthorized_401": {
+      "en": "未授权（401）",
+      "desc": "'401' must survive verbatim.",
+      "hash": "e31a10f2"
+    },
+    "dashboard.common.status.unavailable_503": {
+      "en": "服务不可用（503）",
+      "desc": "Non-success reason. '503' must survive verbatim.",
+      "hash": "f544ed2c"
+    },
+    "dashboard.common.status.upstream_error_cooldowns": {
+      "en": "上游错误冷却",
+      "hash": "082e7f63"
+    },
+    "dashboard.common.status.upstream_timeout_504": {
+      "en": "上游超时（504）",
+      "desc": "Non-success reason. '504' must survive verbatim.",
+      "hash": "37653bb1"
+    },
+    "dashboard.common.tag.now": {
+      "en": "实时",
+      "desc": "Badge on a card heading: this figure is the live instant, not an aggregate over the selected time range. Adverb of time.",
+      "hash": "fe18013d"
+    },
+    "dashboard.common.tooltip.total": {
+      "en": "合计",
+      "desc": "Final row in a stacked-chart tooltip: the sum of all visible series at the selected time.",
+      "hash": "c9b3c382"
+    },
+    "dashboard.common.uptime": {
+      "en": "运行时长：{duration}",
+      "desc": "Live proxy uptime. {duration} is an already-formatted localized duration.",
+      "hash": "92faa2d9"
+    },
+    "dashboard.common.value.now": {
+      "en": "当前 {value}",
+      "hash": "dc1a4806"
+    },
+    "dashboard.modal.secret.heading": {
+      "en": "一次性密钥",
+      "hash": "04a195c4"
+    },
+    "dashboard.models.cards.note": {
+      "en": "按输出 token 排名前 4 · 完整列表见下表",
+      "desc": "Note above the leading-model cards. 'top 4' is a count of cards shown.",
+      "hash": "dedd5a12"
+    },
+    "dashboard.models.col.avg_response": {
+      "en": "平均响应时间",
+      "hash": "0449c134"
+    },
+    "dashboard.models.col.avg_tps": {
+      "en": "平均 tok/s",
+      "desc": "Column header. 'tok/s' is a unit and must survive verbatim.",
+      "hash": "cb513f6e"
+    },
+    "dashboard.models.col.avg_ttft": {
+      "en": "平均 TTFT",
+      "desc": "Column header. 'TTFT' is an abbreviation and must survive verbatim.",
+      "hash": "1a2a2e30"
+    },
+    "dashboard.models.col.errors": {
+      "en": "错误",
+      "hash": "cb702378"
+    },
+    "dashboard.models.col.reasoning": {
+      "en": "推理",
+      "hash": "d8211e24"
+    },
+    "dashboard.models.col.truncated": {
+      "en": "截断",
+      "hash": "d9d9fcf3"
+    },
+    "dashboard.models.count.few": {
+      "en": "{n} 个模型",
+      "hash": "a394ccda"
+    },
+    "dashboard.models.count.many": {
+      "en": "{n} 个模型",
+      "hash": "a394ccda"
+    },
+    "dashboard.models.count.one": {
+      "en": "{n} 个模型",
+      "hash": "8044e016"
+    },
+    "dashboard.models.count.other": {
+      "en": "{n} 个模型",
+      "hash": "a394ccda"
+    },
+    "dashboard.models.count.two": {
+      "en": "{n} 个模型",
+      "hash": "a394ccda"
+    },
+    "dashboard.models.count.zero": {
+      "en": "{n} 个模型",
+      "hash": "a394ccda"
+    },
+    "dashboard.models.count_with_sort.few": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "b8a32ca0"
+    },
+    "dashboard.models.count_with_sort.many": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "b8a32ca0"
+    },
+    "dashboard.models.count_with_sort.one": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "148617d0"
+    },
+    "dashboard.models.count_with_sort.other": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "b8a32ca0"
+    },
+    "dashboard.models.count_with_sort.two": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "b8a32ca0"
+    },
+    "dashboard.models.count_with_sort.zero": {
+      "en": "{n} 个模型 · 点击列标题排序",
+      "hash": "b8a32ca0"
+    },
+    "dashboard.models.empty.no_reasoning": {
+      "en": "无推理 token",
+      "hash": "f1faf3fa"
+    },
+    "dashboard.models.finish.completed": {
+      "en": "正常完成",
+      "desc": "Finish reason. The response ended normally.",
+      "hash": "22a970d2"
+    },
+    "dashboard.models.finish.filtered": {
+      "en": "已过滤",
+      "desc": "Finish reason. Stopped by the upstream content filter.",
+      "hash": "0ba993b3"
+    },
+    "dashboard.models.finish.function_call": {
+      "en": "函数调用",
+      "hash": "4d6ea58d"
+    },
+    "dashboard.models.finish.heading": {
+      "en": "响应结束方式",
+      "hash": "9aef0990"
+    },
+    "dashboard.models.finish.other": {
+      "en": "其他",
+      "desc": "Finish reason matched by no known value.",
+      "hash": "f97e9da0"
+    },
+    "dashboard.models.finish.tool_call": {
+      "en": "工具调用",
+      "hash": "17011048"
+    },
+    "dashboard.models.genspeed.heading": {
+      "en": "生成速度",
+      "hash": "f48a69f4"
+    },
+    "dashboard.models.head_to_head.heading": {
+      "en": "正面对比",
+      "hash": "bff461ca"
+    },
+    "dashboard.models.head_to_head.note": {
+      "en": "生成速度",
+      "hash": "f8b44b7c"
+    },
+    "dashboard.models.itl.heading": {
+      "en": "token 间延迟",
+      "hash": "28905439"
+    },
+    "dashboard.models.kpi.avg_speed": {
+      "en": "平均速度",
+      "hash": "607e4c5f"
+    },
+    "dashboard.models.kpi.completion_tokens": {
+      "en": "补全 token",
+      "hash": "f5ad1c5b"
+    },
+    "dashboard.models.kpi.prompt_tokens": {
+      "en": "提示 token",
+      "hash": "b8fbf83c"
+    },
+    "dashboard.models.leading.subhead": {
+      "en": "领先模型",
+      "hash": "4fc18b3a"
+    },
+    "dashboard.models.per_model.heading": {
+      "en": "按模型",
+      "hash": "139a5981"
+    },
+    "dashboard.models.reasoning.heading": {
+      "en": "推理与输出对比",
+      "hash": "b78166d2"
+    },
+    "dashboard.models.scorecard.heading": {
+      "en": "模型评分卡",
+      "hash": "13fb2211"
+    },
+    "dashboard.models.scorecard.note": {
+      "en": "头部模型正面对比 · 每列最佳值已高亮",
+      "hash": "91939a12"
+    },
+    "dashboard.models.stat.median": {
+      "en": "中位数 {value}",
+      "hash": "6a59ac2c"
+    },
+    "dashboard.models.stat.p95": {
+      "en": "p95 {value}",
+      "hash": "1b5e500c"
+    },
+    "dashboard.models.stat.tool_calls_per_request": {
+      "en": "{calls} · {per_request}/req",
+      "hash": "321ebcce"
+    },
+    "dashboard.models.tokens_per_min.heading": {
+      "en": "每分钟补全 token 数",
+      "hash": "0b7c1721"
+    },
+    "dashboard.models.tokens_per_min.note": {
+      "en": "按模型",
+      "hash": "7f1be7e6"
+    },
+    "dashboard.models.toolcalls.heading": {
+      "en": "工具调用量",
+      "hash": "452e4258"
+    },
+    "dashboard.models.toolcalls.note": {
+      "en": "已发出的工具调用 · 按模型",
+      "hash": "01e3b873"
+    },
+    "dashboard.models.ttft.heading": {
+      "en": "首 token 时间",
+      "hash": "0cec400f"
+    },
+    "dashboard.models.upstream.heading": {
+      "en": "上游延迟",
+      "hash": "4d1a7ea7"
+    },
+    "dashboard.nav.footer.api_key_required.few": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "d0138474"
+    },
+    "dashboard.nav.footer.api_key_required.many": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "d0138474"
+    },
+    "dashboard.nav.footer.api_key_required.one": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "2495b67e"
+    },
+    "dashboard.nav.footer.api_key_required.other": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "d0138474"
+    },
+    "dashboard.nav.footer.api_key_required.two": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "d0138474"
+    },
+    "dashboard.nav.footer.api_key_required.zero": {
+      "en": "v{version} · {keys} 个密钥 · 需要 API 密钥",
+      "hash": "d0138474"
+    },
+    "dashboard.nav.footer.open.few": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "6b524fb3"
+    },
+    "dashboard.nav.footer.open.many": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "6b524fb3"
+    },
+    "dashboard.nav.footer.open.one": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "094c6383"
+    },
+    "dashboard.nav.footer.open.other": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "6b524fb3"
+    },
+    "dashboard.nav.footer.open.two": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "6b524fb3"
+    },
+    "dashboard.nav.footer.open.zero": {
+      "en": "v{version} · {keys} 个密钥 · 开放（无需认证）",
+      "hash": "6b524fb3"
+    },
+    "dashboard.nav.live.connecting": {
+      "en": "连接中",
+      "hash": "3d6df245"
+    },
+    "dashboard.nav.live.disconnected": {
+      "en": "已断开",
+      "desc": "Live-tail control: the browser lost contact with the proxy.",
+      "hash": "04dfac36"
+    },
+    "dashboard.nav.live.following": {
+      "en": "实时",
+      "desc": "Live-tail control: the range follows the present.",
+      "hash": "b64ac05f"
+    },
+    "dashboard.nav.live.frozen": {
+      "en": "固定",
+      "desc": "Live-tail control: the range is pinned to fixed bounds.",
+      "hash": "f288738f"
+    },
+    "dashboard.nav.live.render_failed": {
+      "en": "渲染失败",
+      "desc": "Live-tail control: the dashboard could not render a successfully received update, distinct from losing contact with the proxy.",
+      "hash": "b704deeb"
+    },
+    "dashboard.nav.live.tooltip": {
+      "en": "点击冻结/恢复所选时间范围",
+      "hash": "c08680d1"
+    },
+    "dashboard.nav.locale.failed": {
+      "en": "切换语言失败，请重试。",
+      "desc": "Tooltip shown on the language switch button when saving the language preference failed.",
+      "hash": "d66a9a97"
+    },
+    "dashboard.nav.locale.switch": {
+      "en": "English",
+      "desc": "Language switch button in the sidebar footer. It names the OTHER language the click switches to, written in that language: en-US shows the Chinese name, zh-CN shows English.",
+      "hash": "72726d88"
+    },
+    "dashboard.nav.locale.tooltip": {
+      "en": "切换界面语言",
+      "desc": "Tooltip for the language switch button.",
+      "hash": "2c2ee640"
+    },
+    "dashboard.nav.tab.capacity": {
+      "en": "容量",
+      "hash": "ae65d096"
+    },
+    "dashboard.nav.tab.clients": {
+      "en": "客户端",
+      "hash": "65a72565"
+    },
+    "dashboard.nav.tab.models": {
+      "en": "模型",
+      "desc": "Navigation tab. Plural noun: the per-LLM-model section.",
+      "hash": "d17d2d78"
+    },
+    "dashboard.nav.tab.overview": {
+      "en": "概览",
+      "hash": "d4b1ea57"
+    },
+    "dashboard.nav.tab.reliability": {
+      "en": "可靠性",
+      "hash": "71d0acd4"
+    },
+    "dashboard.nav.tab.settings": {
+      "en": "设置",
+      "hash": "74a883a0"
+    },
+    "dashboard.overview.capacity_reliability.heading": {
+      "en": "容量与可靠性",
+      "hash": "fa267d5d"
+    },
+    "dashboard.overview.kpi.success_counts": {
+      "en": "{ok} / {requests}",
+      "hash": "b15c5ac8"
+    },
+    "dashboard.overview.kpi.tokens_in": {
+      "en": "输入 {tokens}",
+      "hash": "b48a8ba7"
+    },
+    "dashboard.overview.observation_quality.estimated": {
+      "en": "估算",
+      "hash": "b774599a"
+    },
+    "dashboard.overview.observation_quality.invalid": {
+      "en": "无效",
+      "hash": "96c34a07"
+    },
+    "dashboard.overview.observation_quality.measured": {
+      "en": "实测",
+      "hash": "9298c8f4"
+    },
+    "dashboard.overview.observation_quality.unavailable": {
+      "en": "不可用",
+      "hash": "ca184496"
+    },
+    "dashboard.overview.observation_quality.zero": {
+      "en": "无观测数据",
+      "hash": "fed7c51b"
+    },
+    "dashboard.overview.perf.higher_is_better": {
+      "en": "越高越好",
+      "desc": "Note beside a throughput distribution: larger numbers are better. Lowercase, sits under the card heading.",
+      "hash": "8cde7e09"
+    },
+    "dashboard.overview.perf.lower_is_better": {
+      "en": "越低越好",
+      "desc": "Note beside a latency distribution: smaller numbers are better. Lowercase, sits under the card heading.",
+      "hash": "aa8c153c"
+    },
+    "dashboard.overview.performance.heading": {
+      "en": "性能",
+      "hash": "442aded8"
+    },
+    "dashboard.overview.performance.note": {
+      "en": "时间范围内的中位数与 p95",
+      "hash": "3f0caaba"
+    },
+    "dashboard.overview.ring.capacity_sub.few": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "9fa2e113"
+    },
+    "dashboard.overview.ring.capacity_sub.many": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "9fa2e113"
+    },
+    "dashboard.overview.ring.capacity_sub.one": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "ba394345"
+    },
+    "dashboard.overview.ring.capacity_sub.other": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "9fa2e113"
+    },
+    "dashboard.overview.ring.capacity_sub.two": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "9fa2e113"
+    },
+    "dashboard.overview.ring.capacity_sub.zero": {
+      "en": "{rpm_now} / {rpm_capacity} rpm · {n} 个密钥",
+      "hash": "9fa2e113"
+    },
+    "dashboard.overview.ring.capacity_used": {
+      "en": "已用容量",
+      "desc": "Ring-gauge label. Share of the key pool's configured requests-per-minute currently in use.",
+      "hash": "9448656c"
+    },
+    "dashboard.overview.ring.errors.few": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "17ac4dc4"
+    },
+    "dashboard.overview.ring.errors.many": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "17ac4dc4"
+    },
+    "dashboard.overview.ring.errors.one": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "0e735443"
+    },
+    "dashboard.overview.ring.errors.other": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "17ac4dc4"
+    },
+    "dashboard.overview.ring.errors.two": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "17ac4dc4"
+    },
+    "dashboard.overview.ring.errors.zero": {
+      "en": "错误 {pct} · {cooldowns} 次冷却",
+      "hash": "17ac4dc4"
+    },
+    "dashboard.overview.row.observation_quality": {
+      "en": "观测质量",
+      "hash": "b56e5b8f"
+    },
+    "dashboard.overview.top_clients.heading": {
+      "en": "主要客户端",
+      "hash": "9008a2bd"
+    },
+    "dashboard.overview.top_models.heading": {
+      "en": "主要模型",
+      "hash": "79489561"
+    },
+    "dashboard.overview.traffic.heading": {
+      "en": "流量",
+      "hash": "4876efb7"
+    },
+    "dashboard.reliability.col.first_token": {
+      "en": "首 token",
+      "desc": "Latency segment: time to the first token. Do not expand to the TTFT acronym.",
+      "hash": "2b2cc212"
+    },
+    "dashboard.reliability.col.generation": {
+      "en": "生成",
+      "desc": "Latency segment: token generation after the first token.",
+      "hash": "40536dd8"
+    },
+    "dashboard.reliability.col.queue_wait": {
+      "en": "排队等待",
+      "hash": "d55e1fe8"
+    },
+    "dashboard.reliability.empty.no_errors": {
+      "en": "此时间范围内无错误",
+      "hash": "fbbc2eb1"
+    },
+    "dashboard.reliability.heatmap.heading": {
+      "en": "每小时活动",
+      "hash": "e9ba315b"
+    },
+    "dashboard.reliability.hero.availability": {
+      "en": "可用性",
+      "hash": "12f67f85"
+    },
+    "dashboard.reliability.hero.budget_used": {
+      "en": "已用 {pct}",
+      "desc": "Right-hand side of the error-budget row: how much of the budget is consumed. {pct} is an already-formatted percentage.",
+      "hash": "786461c1"
+    },
+    "dashboard.reliability.hero.error_budget": {
+      "en": "错误预算",
+      "desc": "SLO error budget: how much of the allowed unavailability has already been consumed. Lowercase on purpose — it sits inline above the budget bar, not as a heading.",
+      "hash": "32064cd1"
+    },
+    "dashboard.reliability.latency.note": {
+      "en": "平均端到端",
+      "hash": "50b47513"
+    },
+    "dashboard.reliability.latency.title": {
+      "en": "延迟分解",
+      "hash": "66da8fe2"
+    },
+    "dashboard.reliability.load.heading": {
+      "en": "处理中与排队中",
+      "hash": "3a303b5c"
+    },
+    "dashboard.reliability.nonsuccess.heading": {
+      "en": "非成功结果",
+      "hash": "c2b41afd"
+    },
+    "dashboard.reliability.outrate.heading": {
+      "en": "每分钟结果",
+      "hash": "a7fbda2f"
+    },
+    "dashboard.reliability.outstack.heading": {
+      "en": "按结果统计请求",
+      "hash": "132be6cc"
+    },
+    "dashboard.reliability.outstack.note": {
+      "en": "堆叠 · 每分钟",
+      "hash": "bd2367b1"
+    },
+    "dashboard.reliability.pressure.heading": {
+      "en": "模型限制",
+      "hash": "43e77160"
+    },
+    "dashboard.reliability.pressure.note": {
+      "en": "worker 耗尽与单模型上限",
+      "hash": "cde0a950"
+    },
+    "dashboard.reliability.pressure.series": {
+      "en": "容量错误/min",
+      "desc": "Chart series name: upstream worker-capacity errors per minute.",
+      "hash": "2fd5ae55"
+    },
+    "dashboard.reliability.queuewait.heading": {
+      "en": "排队等待",
+      "hash": "d55e1fe8"
+    },
+    "dashboard.reliability.reqrate.heading": {
+      "en": "每分钟请求数",
+      "hash": "aa6d477f"
+    },
+    "dashboard.reliability.reqtypes.heading": {
+      "en": "请求类型",
+      "hash": "d91b8539"
+    },
+    "dashboard.reliability.row.buffered": {
+      "en": "非流式",
+      "desc": "Opposite of streaming: the whole response returned at once.",
+      "hash": "8e89b290"
+    },
+    "dashboard.reliability.row.dropped_503": {
+      "en": "已丢弃（过载 503）",
+      "desc": "'503' is an HTTP status and must survive verbatim.",
+      "hash": "dc219614"
+    },
+    "dashboard.reliability.row.json_mode": {
+      "en": "JSON 模式",
+      "desc": "'JSON' must survive verbatim; only 'mode' translates.",
+      "hash": "36636e63"
+    },
+    "dashboard.reliability.row.requests_with_tools": {
+      "en": "使用工具的请求",
+      "hash": "904e6992"
+    },
+    "dashboard.reliability.row.tool_choice": {
+      "en": "工具选择",
+      "desc": "The API parameter rendered as a label.",
+      "hash": "d3a2c6a3"
+    },
+    "dashboard.reliability.security.heading": {
+      "en": "可靠性与安全",
+      "hash": "def25f10"
+    },
+    "dashboard.reliability.slo.met": {
+      "en": "SLO {target} · 已达成",
+      "desc": "Under the availability figure when the target was achieved. 'SLO' is an abbreviation and must survive verbatim; {target} is the target percentage.",
+      "hash": "019ba1ae"
+    },
+    "dashboard.reliability.slo.missed": {
+      "en": "SLO {target} · 未达成",
+      "desc": "Under the availability figure when the target was not achieved. 'SLO' must survive verbatim; {target} is the target percentage.",
+      "hash": "80d04652"
+    },
+    "dashboard.reliability.slo.no_traffic": {
+      "en": "SLO {target} · 无符合条件的流量",
+      "desc": "Under the availability figure when the time range contains no requests the SLO counts. 'SLO' must survive verbatim; {target} is the target percentage.",
+      "hash": "a9c9a18c"
+    },
+    "dashboard.topbar.custom.apply": {
+      "en": "应用",
+      "desc": "Button, imperative verb. Applies the entered range.",
+      "hash": "31e392d1"
+    },
+    "dashboard.topbar.custom.from": {
+      "en": "开始时间",
+      "desc": "Accessible name for the start of a custom dashboard time range.",
+      "hash": "21819769"
+    },
+    "dashboard.topbar.custom.to": {
+      "en": "至",
+      "desc": "Separator between the from and to datetime inputs. Preposition, not a verb.",
+      "hash": "663ea1bf"
+    },
+    "dashboard.topbar.custom.to_label": {
+      "en": "结束时间",
+      "desc": "Accessible name for the end of a custom dashboard time range.",
+      "hash": "f4b06ef6"
+    },
+    "dashboard.topbar.error.load": {
+      "en": "加载时间范围失败",
+      "hash": "3f4d86a6"
+    },
+    "dashboard.topbar.error.resume": {
+      "en": "恢复时间范围失败",
+      "hash": "5bcd9d8e"
+    },
+    "dashboard.topbar.range.all_time": {
+      "en": "全部时间",
+      "hash": "9755c8d7"
+    },
+    "dashboard.topbar.range.custom": {
+      "en": "自定义",
+      "desc": "Toggle button. Opens the from/to picker. Adjective used as a label.",
+      "hash": "494ca78f"
+    },
+    "dashboard.topbar.range.default": {
+      "en": "默认 · 30d",
+      "desc": "Toggle button. 'Default' is an adjective qualifying the preset time range; 30d is its length.",
+      "hash": "4c1bd988"
+    },
+    "dashboard.topbar.range.default_dynamic": {
+      "en": "默认 · {days}d",
+      "hash": "b8f2d75f"
+    },
+    "dashboard.topbar.range.p1h": {
+      "en": "1h",
+      "desc": "Short duration abbreviation on a time-range pill.",
+      "hash": "89481628"
+    },
+    "dashboard.topbar.range.p24h": {
+      "en": "24h",
+      "desc": "Short duration abbreviation on a time-range pill.",
+      "hash": "0b509e6d"
+    },
+    "dashboard.topbar.range.p30d": {
+      "en": "30d",
+      "desc": "Short duration abbreviation on a time-range pill.",
+      "hash": "e3ba17e3"
+    },
+    "dashboard.topbar.range.p6h": {
+      "en": "6h",
+      "desc": "Short duration abbreviation on a time-range pill.",
+      "hash": "13eded38"
+    },
+    "dashboard.topbar.range.p7d": {
+      "en": "7d",
+      "desc": "Short duration abbreviation on a time-range pill.",
+      "hash": "a7c74264"
+    },
+    "dashboard.topbar.scope.absolute": {
+      "en": "○ 固定 {from} – {to}",
+      "hash": "49041a3c"
+    },
+    "dashboard.topbar.scope.following": {
+      "en": "● 实时 {preset} {from} – {to}",
+      "hash": "f24435d2"
+    },
+    "dashboard.topbar.scope.partial_history": {
+      "en": "部分历史 · {from}–{to}",
+      "desc": "Range status for incomplete history; variables are the effective observed bounds, not the requested bounds.",
+      "hash": "41fcec64"
+    },
+    "login.document.title": {
+      "en": "NIM Proxy — 登录",
+      "desc": "Browser tab title for the sign-in page.",
+      "hash": "991ec816"
+    },
+    "login.error.invalid_credentials": {
+      "en": "用户名或密码错误。",
+      "desc": "Generic authentication failure; never disclose which credential was wrong.",
+      "hash": "2420afe3"
+    },
+    "login.password.placeholder": {
+      "en": "密码",
+      "desc": "Password input placeholder.",
+      "hash": "e7cf3ef4"
+    },
+    "login.prompt": {
+      "en": "登录以访问仪表盘。",
+      "hash": "252990f5"
+    },
+    "login.submit": {
+      "en": "登录",
+      "desc": "Submit button, imperative verb phrase.",
+      "hash": "bfd402b2"
+    },
+    "login.username.placeholder": {
+      "en": "用户名",
+      "desc": "Username input placeholder.",
+      "hash": "e3b89e9d"
+    },
+    "settings.account.confirm_password": {
+      "en": "确认新密码",
+      "hash": "bf000421"
+    },
+    "settings.account.current_password": {
+      "en": "当前密码",
+      "hash": "72ed2bd7"
+    },
+    "settings.account.heading": {
+      "en": "账户",
+      "hash": "7e1b0d56"
+    },
+    "settings.account.new_password": {
+      "en": "新密码 · 至少 10 个字符",
+      "hash": "24a62e18"
+    },
+    "settings.account.note": {
+      "en": "修改密码会使你的其他会话退出登录。",
+      "hash": "eff3bf4c"
+    },
+    "settings.account.update": {
+      "en": "更新密码",
+      "hash": "fe45b401"
+    },
+    "settings.account.username": {
+      "en": "用户名",
+      "hash": "e3b89e9d"
+    },
+    "settings.client_key.empty": {
+      "en": "暂无客户端密钥",
+      "hash": "27a9a0bf"
+    },
+    "settings.client_key.generate": {
+      "en": "+ 生成密钥",
+      "hash": "92abcd19"
+    },
+    "settings.client_key.heading.all": {
+      "en": "客户端 API 密钥",
+      "hash": "d82056dd"
+    },
+    "settings.client_key.heading.mine": {
+      "en": "我的客户端 API 密钥",
+      "hash": "57621a6e"
+    },
+    "settings.client_key.note": {
+      "en": "这些 bearer token 用于认证你的客户端。",
+      "hash": "2cde1ba8"
+    },
+    "settings.client_key.placeholder": {
+      "en": "为此密钥命名，例如 laptop-cli",
+      "hash": "70a0d9c2"
+    },
+    "settings.client_key.revoke": {
+      "en": "吊销",
+      "hash": "87e6d00b"
+    },
+    "settings.common.done": {
+      "en": "完成",
+      "hash": "11a6767d"
+    },
+    "settings.common.save": {
+      "en": "保存",
+      "hash": "1509f561"
+    },
+    "settings.connection.base_url": {
+      "en": "客户端 Base URL",
+      "hash": "32444228"
+    },
+    "settings.connection.heading": {
+      "en": "连接",
+      "hash": "639a40e8"
+    },
+    "settings.copy.copied": {
+      "en": "已复制 ✓",
+      "hash": "58d73ef4"
+    },
+    "settings.copy.copy": {
+      "en": "复制",
+      "hash": "e21f935f"
+    },
+    "settings.copy.failed": {
+      "en": "复制失败",
+      "hash": "5b50e7a6"
+    },
+    "settings.dialog.delete_user": {
+      "en": "删除 {username}？其 NIM API 密钥将移出密钥池，其客户端 API 密钥将被吊销。",
+      "hash": "56bdc932"
+    },
+    "settings.dialog.remove_key": {
+      "en": "要从密钥池中移除 NIM API 密钥 nvapi-••••{last4} 吗？进行中的请求会正常完成，但其限流窗口将丢失。",
+      "hash": "73435aa0"
+    },
+    "settings.dialog.reset_password": {
+      "en": "为 {username} 设置新密码（至少 10 个字符）：",
+      "hash": "338150d4"
+    },
+    "settings.dialog.revoke_client_key": {
+      "en": "吊销客户端 API 密钥“{name}”？使用它的客户端将立即停止工作。",
+      "hash": "5fb2a465"
+    },
+    "settings.error.load": {
+      "en": "无法加载设置。请刷新页面并重新登录。",
+      "hash": "caed8f2c"
+    },
+    "settings.error.refresh_after_save": {
+      "en": "设置已保存，但刷新失败。",
+      "hash": "ce204725"
+    },
+    "settings.error.request_failed": {
+      "en": "请求失败（HTTP {status}）。",
+      "hash": "3692891d"
+    },
+    "settings.key.add_anyway": {
+      "en": "仍然添加",
+      "hash": "d0652ad3"
+    },
+    "settings.key.empty": {
+      "en": "暂无 NIM API 密钥 — 请在下方添加",
+      "hash": "fa52e200"
+    },
+    "settings.key.guarded": {
+      "en": "受保护：超级用户必须保留至少一个已启用的 NIM API 密钥。请先添加或启用另一个密钥，再移除此密钥。",
+      "hash": "8f84df6b"
+    },
+    "settings.key.heading.all": {
+      "en": "NIM API 密钥",
+      "hash": "11fdda21"
+    },
+    "settings.key.heading.mine": {
+      "en": "我的 NIM API 密钥",
+      "hash": "af1c4f87"
+    },
+    "settings.key.notice.admin": {
+      "en": "你添加的密钥会分配到你的账户并加入共享密钥池。更改立即生效。禁用密钥会保留其限流状态。",
+      "hash": "4b69ae49"
+    },
+    "settings.key.notice.mine": {
+      "en": "你添加的密钥会分配到你的账户并加入共享密钥池。只有你和管理员能看到它们的存在。更改立即生效。禁用密钥会保留其限流状态。",
+      "hash": "124f2a6c"
+    },
+    "settings.key.off": {
+      "en": "已禁用",
+      "hash": "75081b59"
+    },
+    "settings.key.placeholder": {
+      "en": "粘贴新的 NIM API 密钥（nvapi-…）",
+      "hash": "4c922c00"
+    },
+    "settings.key.pool_note": {
+      "en": "密钥池：{enabled} 个已启用 · 总计：{capacity} rpm",
+      "hash": "c2936548"
+    },
+    "settings.key.remove": {
+      "en": "移除 NIM API 密钥",
+      "hash": "d15bafa9"
+    },
+    "settings.key.rpm": {
+      "en": "每分钟请求数",
+      "desc": "Accessible name for a NIM API key rate-limit input.",
+      "hash": "aa6d477f"
+    },
+    "settings.key.slot": {
+      "en": "槽位 {n}",
+      "hash": "18616a78"
+    },
+    "settings.key.state.cooldown": {
+      "en": "冷却 {seconds}s",
+      "hash": "b35f8e5e"
+    },
+    "settings.key.state.disabled": {
+      "en": "已禁用",
+      "hash": "75081b59"
+    },
+    "settings.key.state.in_window": {
+      "en": "窗口内 {in_window} / {rpm}",
+      "hash": "773cf007"
+    },
+    "settings.key.state.unassigned": {
+      "en": "未分配",
+      "hash": "14d33bd0"
+    },
+    "settings.key.toggle.disable": {
+      "en": "禁用。限流状态将保留。",
+      "hash": "48b5c705"
+    },
+    "settings.key.toggle.enable": {
+      "en": "启用",
+      "hash": "5342e09f"
+    },
+    "settings.key.validate_add": {
+      "en": "验证并添加",
+      "hash": "15414785"
+    },
+    "settings.key.validating": {
+      "en": "正在验证…",
+      "hash": "cd51f8c8"
+    },
+    "settings.mode.heading": {
+      "en": "API 访问模式",
+      "hash": "4668b68f"
+    },
+    "settings.mode.help": {
+      "en": "仅控制 /v1 客户端调用。在“需要 API 密钥”模式下，客户端使用 bearer token 认证。“开放（无需认证）”模式允许任何能访问 /v1 的人调用。请仅在可信网络中使用。",
+      "desc": "Full API access-mode explanation. This is deliberately one plain catalog sentence; the former bold literals are not parsed or reassembled at runtime.",
+      "hash": "3431dd52"
+    },
+    "settings.mode.keyed": {
+      "en": "需要 API 密钥",
+      "hash": "3b855d54"
+    },
+    "settings.mode.keyed_note": {
+      "en": "客户端使用客户端 API 密钥进行认证。",
+      "hash": "7fd7e1d1"
+    },
+    "settings.mode.no_client_keys": {
+      "en": "在没有任何客户端 API 密钥时要求 API 密钥，会导致所有客户端无法访问。请在“访问与密钥”中生成一个。",
+      "hash": "d3d6605c"
+    },
+    "settings.mode.open": {
+      "en": "开放（无需认证）",
+      "hash": "17759351"
+    },
+    "settings.mode.open_note": {
+      "en": "任何能访问 /v1 的人都可以使用密钥池。",
+      "hash": "d9251b4a"
+    },
+    "settings.nav.access": {
+      "en": "访问与密钥",
+      "hash": "bb83749e"
+    },
+    "settings.nav.account": {
+      "en": "账户",
+      "hash": "7e1b0d56"
+    },
+    "settings.nav.server": {
+      "en": "服务器",
+      "hash": "aef7de28"
+    },
+    "settings.nav.users": {
+      "en": "用户",
+      "hash": "6b0cc904"
+    },
+    "settings.secret.copy": {
+      "en": "复制",
+      "hash": "e21f935f"
+    },
+    "settings.secret.ready": {
+      "en": "客户端 API 密钥“{name}”已就绪。请立即复制。",
+      "hash": "942f7f44"
+    },
+    "settings.secret.warning": {
+      "en": "此内容不会再次显示。",
+      "hash": "8452e785"
+    },
+    "settings.server.adaptive": {
+      "en": "自动",
+      "hash": "d461a493"
+    },
+    "settings.server.add_override": {
+      "en": "添加覆盖",
+      "hash": "fafc22c3"
+    },
+    "settings.server.base_url": {
+      "en": "上游基础 URL",
+      "desc": "Accessible name for the configurable upstream base URL.",
+      "hash": "a3b55051"
+    },
+    "settings.server.base_url_note": {
+      "en": "保存后将更改上游基础 URL，并清空模型目录缓存。",
+      "hash": "eefdd484"
+    },
+    "settings.server.days": {
+      "en": "days",
+      "hash": "ab51004e"
+    },
+    "settings.server.history.bytes.few": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'few' for the history data-file size. {bytes} is already locale-formatted; English repeats the other form.",
+      "hash": "31800b69"
+    },
+    "settings.server.history.bytes.many": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'many' for the history data-file size. {bytes} is already locale-formatted; English repeats the other form.",
+      "hash": "31800b69"
+    },
+    "settings.server.history.bytes.one": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'one' for the history data-file size. {bytes} is already locale-formatted.",
+      "hash": "51bd3673"
+    },
+    "settings.server.history.bytes.other": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'other' for the history data-file size. {bytes} is already locale-formatted.",
+      "hash": "31800b69"
+    },
+    "settings.server.history.bytes.two": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'two' for the history data-file size. {bytes} is already locale-formatted; English repeats the other form.",
+      "hash": "31800b69"
+    },
+    "settings.server.history.bytes.zero": {
+      "en": "{bytes} 字节",
+      "desc": "CLDR plural category 'zero' for the history data-file size. {bytes} is already locale-formatted; English repeats the other form.",
+      "hash": "31800b69"
+    },
+    "settings.server.history.compaction_pending": {
+      "en": "等待压缩。",
+      "hash": "1260d448"
+    },
+    "settings.server.history.data_file": {
+      "en": "数据文件",
+      "hash": "38f5f508"
+    },
+    "settings.server.history.default_range": {
+      "en": "默认时间范围",
+      "hash": "5ec3c658"
+    },
+    "settings.server.history.heading": {
+      "en": "历史与仪表盘",
+      "hash": "d0c9c7aa"
+    },
+    "settings.server.history.no_data": {
+      "en": "暂无数据",
+      "hash": "e2e18a76"
+    },
+    "settings.server.history.oldest": {
+      "en": "最早数据点",
+      "hash": "ef4ab020"
+    },
+    "settings.server.history.persistence_degraded": {
+      "en": "历史持久化已降级。请重启代理以重试规范存储。",
+      "hash": "4b24eb63"
+    },
+    "settings.server.history.retention": {
+      "en": "历史保留 · 0 = 不限",
+      "hash": "c137c172"
+    },
+    "settings.server.history.slo": {
+      "en": "可用性 SLO",
+      "hash": "226f7fe9"
+    },
+    "settings.server.limit.heartbeat": {
+      "en": "心跳",
+      "hash": "9df89427"
+    },
+    "settings.server.limit.max_inflight": {
+      "en": "最大并发请求",
+      "hash": "ea457682"
+    },
+    "settings.server.limit.max_wait": {
+      "en": "最长等待",
+      "hash": "c2cd8e04"
+    },
+    "settings.server.limit.models_ttl": {
+      "en": "模型缓存 TTL",
+      "hash": "cbd325d5"
+    },
+    "settings.server.limit.request_timeout": {
+      "en": "请求超时",
+      "hash": "70f60044"
+    },
+    "settings.server.limit.stream_idle": {
+      "en": "流空闲超时",
+      "hash": "c81a6778"
+    },
+    "settings.server.model_concurrency": {
+      "en": "模型并发上限",
+      "desc": "Accessible name for a per-model governor override limit.",
+      "hash": "c1032472"
+    },
+    "settings.server.model_limits": {
+      "en": "模型限制",
+      "hash": "43e77160"
+    },
+    "settings.server.model_limits_help": {
+      "en": "当 NIM 报告 worker 耗尽时，限制每个模型的并发请求数。限制会自动调整；仅在已知并发上限时才需添加覆盖。",
+      "hash": "e091e076"
+    },
+    "settings.server.model_placeholder": {
+      "en": "模型 ID，例如 moonshotai/kimi-k2.5",
+      "hash": "26ae28e9"
+    },
+    "settings.server.no_overrides": {
+      "en": "未设置覆盖",
+      "hash": "3cbc17e7"
+    },
+    "settings.server.remove_override": {
+      "en": "移除覆盖",
+      "hash": "6d43eea1"
+    },
+    "settings.server.strict_note": {
+      "en": "拒绝上游不接受的参数。",
+      "hash": "4e5f898d"
+    },
+    "settings.server.strict_passthrough": {
+      "en": "严格透传",
+      "hash": "75005c81"
+    },
+    "settings.server.unit.limit": {
+      "en": "并发",
+      "hash": "a35178ec"
+    },
+    "settings.server.unit.seconds": {
+      "en": "s",
+      "hash": "043a7187"
+    },
+    "settings.server.upstream_limits": {
+      "en": "上游与限制",
+      "hash": "e1ebfed2"
+    },
+    "settings.users.add": {
+      "en": "添加用户",
+      "hash": "eec5c73a"
+    },
+    "settings.users.client_key_count.few": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'few' for the user's client API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "db3cf8c9"
+    },
+    "settings.users.client_key_count.many": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'many' for the user's client API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "db3cf8c9"
+    },
+    "settings.users.client_key_count.one": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'one' for the user's client API key count. {n} is already locale-formatted.",
+      "hash": "591f6a81"
+    },
+    "settings.users.client_key_count.other": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'other' for the user's client API key count. {n} is already locale-formatted.",
+      "hash": "db3cf8c9"
+    },
+    "settings.users.client_key_count.two": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'two' for the user's client API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "db3cf8c9"
+    },
+    "settings.users.client_key_count.zero": {
+      "en": "{n} 个客户端 API 密钥",
+      "desc": "CLDR plural category 'zero' for the user's client API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "db3cf8c9"
+    },
+    "settings.users.delete": {
+      "en": "删除",
+      "hash": "e2d0a549"
+    },
+    "settings.users.heading": {
+      "en": "用户",
+      "hash": "6b0cc904"
+    },
+    "settings.users.nim_key_count.few": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'few' for the user's NIM API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "e964131c"
+    },
+    "settings.users.nim_key_count.many": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'many' for the user's NIM API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "e964131c"
+    },
+    "settings.users.nim_key_count.one": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'one' for the user's NIM API key count. {n} is already locale-formatted.",
+      "hash": "edbe8c52"
+    },
+    "settings.users.nim_key_count.other": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'other' for the user's NIM API key count. {n} is already locale-formatted.",
+      "hash": "e964131c"
+    },
+    "settings.users.nim_key_count.two": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'two' for the user's NIM API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "e964131c"
+    },
+    "settings.users.nim_key_count.zero": {
+      "en": "{n} 个 NIM API 密钥",
+      "desc": "CLDR plural category 'zero' for the user's NIM API key count. {n} is already locale-formatted; English repeats the other form.",
+      "hash": "e964131c"
+    },
+    "settings.users.note": {
+      "en": "删除用户会将其 NIM API 密钥移出密钥池，并吊销其客户端 API 密钥。",
+      "hash": "10877a46"
+    },
+    "settings.users.password_placeholder": {
+      "en": "初始密码（至少 10 个字符）",
+      "hash": "460b4335"
+    },
+    "settings.users.reset_password": {
+      "en": "重置密码",
+      "hash": "e0edfeb3"
+    },
+    "settings.users.role": {
+      "en": "角色",
+      "hash": "14736a2e"
+    },
+    "settings.users.self_managed": {
+      "en": "自行管理",
+      "hash": "122c90c3"
+    },
+    "settings.users.superuser_note": {
+      "en": "超级用户需在账户设置中修改自己的密码。",
+      "hash": "cf3196cb"
+    },
+    "settings.users.username_placeholder": {
+      "en": "新用户名",
+      "hash": "534c560d"
+    },
+    "settings.validation.client_key_name": {
+      "en": "请输入客户端 API 密钥名称，例如 laptop-cli。",
+      "hash": "75659563"
+    },
+    "settings.validation.governor": {
+      "en": "请输入模型 ID 和不小于 1 的并发上限。",
+      "hash": "82446307"
+    },
+    "settings.validation.history_default": {
+      "en": "默认时间范围至少为 1 天。",
+      "hash": "d0de6732"
+    },
+    "settings.validation.history_retention": {
+      "en": "历史保留天数必须大于或等于 0。",
+      "hash": "6f5ebc67"
+    },
+    "settings.validation.initial_password": {
+      "en": "初始密码至少需要 10 个字符。",
+      "hash": "fd6c7b3d"
+    },
+    "settings.validation.limits": {
+      "en": "每项限制都必须是 ≥ 0 的整数。",
+      "hash": "bd14b8f3"
+    },
+    "settings.validation.models_added.few": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'few' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted; English repeats the other form.",
+      "hash": "8325eafc"
+    },
+    "settings.validation.models_added.many": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'many' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted; English repeats the other form.",
+      "hash": "8325eafc"
+    },
+    "settings.validation.models_added.one": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'one' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted.",
+      "hash": "c1e489e4"
+    },
+    "settings.validation.models_added.other": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'other' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted.",
+      "hash": "8325eafc"
+    },
+    "settings.validation.models_added.two": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'two' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted; English repeats the other form.",
+      "hash": "8325eafc"
+    },
+    "settings.validation.models_added.zero": {
+      "en": "✓ 找到 {n} 个模型。正在添加 NIM API 密钥…",
+      "desc": "CLDR plural category 'zero' for successful NIM API key validation. {n} is the number of returned models and is already locale-formatted; English repeats the other form.",
+      "hash": "8325eafc"
+    },
+    "settings.validation.new_password": {
+      "en": "新密码至少需要 10 个字符。",
+      "hash": "cbe2939e"
+    },
+    "settings.validation.nim_key_required": {
+      "en": "请先粘贴 NIM API 密钥。",
+      "hash": "45e7e8a4"
+    },
+    "settings.validation.password": {
+      "en": "密码至少需要 10 个字符。",
+      "hash": "7e65d20b"
+    },
+    "settings.validation.password_mismatch": {
+      "en": "两次输入的密码不一致。",
+      "hash": "6c6e178a"
+    },
+    "settings.validation.password_reset": {
+      "en": "已重置 {username} 的密码。",
+      "hash": "42bdd256"
+    },
+    "settings.validation.password_updated": {
+      "en": "密码已更新，其他会话已退出登录。",
+      "hash": "3856551c"
+    },
+    "settings.validation.saved": {
+      "en": "已保存。",
+      "hash": "fca046cc"
+    },
+    "settings.validation.slo": {
+      "en": "SLO 目标必须大于 0 且不超过 100。",
+      "hash": "90bf3754"
+    },
+    "settings.validation.username": {
+      "en": "请输入用户名。",
+      "hash": "b9305ea3"
+    },
+    "setup.document.title": {
+      "en": "NIM Proxy — 首次设置",
+      "desc": "Browser tab title. 'NIM Proxy' is the product name and stays.",
+      "hash": "a59b017c"
+    },
+    "setup.header.subtitle": {
+      "en": "完成设置：创建超级用户账户，并添加至少一个 NIM API 密钥。",
+      "hash": "e713a395"
+    },
+    "setup.header.title": {
+      "en": "— 首次设置",
+      "desc": "Follows the untranslated NIM PROXY wordmark.",
+      "hash": "f1de6d69"
+    },
+    "setup.step1.confirm": {
+      "en": "确认密码",
+      "hash": "5ac265f3"
+    },
+    "setup.step1.error.password_length": {
+      "en": "密码至少需要 10 个字符。",
+      "desc": "Validation error under the account form. 10 is the enforced minimum length.",
+      "hash": "7e65d20b"
+    },
+    "setup.step1.error.password_mismatch": {
+      "en": "两次输入的密码不一致。",
+      "hash": "6c6e178a"
+    },
+    "setup.step1.error.username_charset": {
+      "en": "用户名：1–32 个字母、数字、'.'、'_' 或 '-'。",
+      "desc": "Validation error under the account form. The character set and the 1-32 range are enforced by the server and must survive verbatim.",
+      "hash": "c437375f"
+    },
+    "setup.step1.hint": {
+      "en": "超级用户账户无法删除。",
+      "desc": "The one durable restriction this hint communicates.",
+      "hash": "322426e9"
+    },
+    "setup.step1.password": {
+      "en": "密码（至少 10 个字符）",
+      "hash": "79c07c0e"
+    },
+    "setup.step1.username": {
+      "en": "用户名",
+      "hash": "e3b89e9d"
+    },
+    "setup.step1.username.placeholder": {
+      "en": "例如 admin",
+      "desc": "Input placeholder. 'e.g.' needs the locale's own abbreviation; 'admin' is a suggested value.",
+      "hash": "d415d634"
+    },
+    "setup.step2.addkey": {
+      "en": "验证并添加",
+      "hash": "15414785"
+    },
+    "setup.step2.advanced": {
+      "en": "高级 — 上游基础 URL",
+      "hash": "8dd07757"
+    },
+    "setup.step2.base_url": {
+      "en": "上游基础 URL",
+      "desc": "Accessible name for the optional setup upstream URL input.",
+      "hash": "a3b55051"
+    },
+    "setup.step2.error.key_duplicate": {
+      "en": "该密钥已添加。",
+      "desc": "Validation error: the same NIM key is already in the list.",
+      "hash": "984cdd49"
+    },
+    "setup.step2.error.key_required": {
+      "en": "请先粘贴 NIM API 密钥。",
+      "desc": "Validation error: the key field is empty. 'NIM' is the vendor product name and stays.",
+      "hash": "45e7e8a4"
+    },
+    "setup.step2.error.validation_failed": {
+      "en": "密钥验证失败：{error}",
+      "desc": "The upstream rejected the key. {error} is the upstream's own error text or an HTTP status code, inserted verbatim and never translated.",
+      "hash": "38f22520"
+    },
+    "setup.step2.error.validation_request": {
+      "en": "验证请求失败：{error}",
+      "desc": "The browser could not reach the proxy to validate the key. {error} is the browser's error text, inserted verbatim and never translated.",
+      "hash": "9e7beddf"
+    },
+    "setup.step2.hint": {
+      "en": "NIM API 密钥由所有客户端共享。每个密钥默认限速 40 requests/min。",
+      "desc": "Explains pool sharing and the default per-key rate limit.",
+      "hash": "de52a624"
+    },
+    "setup.step2.key_label": {
+      "en": "NIM API 密钥",
+      "desc": "Accessible name for the setup NIM API key input.",
+      "hash": "48470460"
+    },
+    "setup.step2.key_meta": {
+      "en": "{models} 个模型 · {rpm} rpm",
+      "desc": "Meta line on an added key: how many models the key reached, then its per-minute limit. 'rpm' is a unit and must survive verbatim.",
+      "hash": "026c787c"
+    },
+    "setup.step2.rpm_label": {
+      "en": "每分钟请求数",
+      "desc": "Accessible name for the setup NIM API key rate-limit input.",
+      "hash": "aa6d477f"
+    },
+    "setup.step2.validating": {
+      "en": "正在验证…",
+      "desc": "Button label while a key is probed upstream.",
+      "hash": "cd51f8c8"
+    },
+    "setup.step3.api_access_keyed": {
+      "en": "需要 API 密钥 · 首个客户端密钥 \"default\"",
+      "desc": "Review line, shown when the wizard will mint a client key. \"default\" is the key's literal name and must survive verbatim, quotes included.",
+      "hash": "e77044c2"
+    },
+    "setup.step3.api_access_open": {
+      "en": "需要 API 密钥 · 未配置客户端密钥",
+      "desc": "Review line when keyed mode has no client keys.",
+      "hash": "df3a52d0"
+    },
+    "setup.step3.error.failed": {
+      "en": "设置失败（{status}）",
+      "desc": "The proxy rejected the setup request. {status} is the HTTP status code, a number inserted verbatim.",
+      "hash": "1a1df234"
+    },
+    "setup.step3.error.request": {
+      "en": "设置请求失败：{error}",
+      "desc": "The browser could not reach the proxy to submit setup. {error} is the browser's error text, inserted verbatim and never translated.",
+      "hash": "d35faf3c"
+    },
+    "setup.step3.finish": {
+      "en": "创建并打开仪表盘",
+      "hash": "c91cfd01"
+    },
+    "setup.step3.mintkey": {
+      "en": "创建首个客户端 API 密钥（{key}），以便立即访问 {endpoint}",
+      "desc": "Checkbox label. {key} and {endpoint} are fixed machine values.",
+      "hash": "fc1a3704"
+    },
+    "setup.step3.mintwarn": {
+      "en": "没有客户端 API 密钥时，{b}所有{/b} /v1 请求都会被拒绝。请在“设置 → 访问与密钥”中创建一个，或将 API 认证改为“开放（无需认证）”。",
+      "desc": "{b}...{/b} emphasizes that every /v1 request is rejected until the operator creates a client key or explicitly opens API authentication.",
+      "hash": "169155e2"
+    },
+    "setup.step3.review.api_access": {
+      "en": "API 访问",
+      "desc": "Review-panel row label. Whether the proxy's own /v1 endpoint will require a client API key.",
+      "hash": "923fd434"
+    },
+    "setup.step3.review.keys": {
+      "en": "NIM 密钥",
+      "desc": "Review-panel row label: the upstream NIM API keys added in step 2. 'NIM' is the vendor product name and stays.",
+      "hash": "504945ef"
+    },
+    "setup.step3.review.keys_value": {
+      "en": "{count} 个已验证 · 合计 {rpm} rpm",
+      "desc": "Review-panel value for the NIM keys row: how many keys validated, then the pool's combined per-minute limit. 'rpm' is a unit and must survive verbatim.",
+      "hash": "1497318d"
+    },
+    "setup.step3.review.superuser": {
+      "en": "超级用户",
+      "desc": "Review-panel row label. The role of the account being created; the proxy persists this same role name.",
+      "hash": "593b0a98"
+    },
+    "setup.step3.review.upstream": {
+      "en": "上游",
+      "desc": "Review-panel row label. The upstream base URL requests are forwarded to; the value beside it is a URL.",
+      "hash": "94adc696"
+    },
+    "setup.step4.apikey": {
+      "en": "客户端 API 密钥",
+      "hash": "f3a91248"
+    },
+    "setup.step4.baseurl": {
+      "en": "客户端基础 URL",
+      "hash": "32444228"
+    },
+    "setup.step4.copied": {
+      "en": "已复制",
+      "desc": "Button label after a successful clipboard copy. Past tense.",
+      "hash": "8d525e5f"
+    },
+    "setup.step4.copy": {
+      "en": "复制",
+      "desc": "Button, imperative verb. Copies the adjacent value to the clipboard.",
+      "hash": "e21f935f"
+    },
+    "setup.step4.intro": {
+      "en": "设置完成。请使用下方的代理 URL 和 API 密钥配置客户端。API 密钥{b}仅显示一次{/b}；系统只保存其摘要。",
+      "desc": "{b}...{/b} emphasizes the once-only secret display.",
+      "hash": "b9a0cea0"
+    },
+    "setup.step4.opendash": {
+      "en": "打开仪表盘",
+      "desc": "Button, imperative verb phrase. 'Open' is the verb, not the API-mode adjective.",
+      "hash": "803f2313"
+    },
+    "setup.step4.select_copy": {
+      "en": "选择并复制",
+      "desc": "Button label when the clipboard API is unavailable and the user must copy manually.",
+      "hash": "09201dce"
+    },
+    "setup.stepper.step1": {
+      "en": "创建账户",
+      "hash": "798ca2ce"
+    },
+    "setup.stepper.step2": {
+      "en": "添加 NIM API 密钥",
+      "hash": "77cd4a4d"
+    },
+    "setup.stepper.step3": {
+      "en": "检查并完成",
+      "hash": "d037a7cf"
+    },
+    "setup.wizard.back": {
+      "en": "上一步",
+      "hash": "76900f1b"
+    },
+    "setup.wizard.continue": {
+      "en": "继续",
+      "hash": "31fbef16"
+    }
+  }
+}
