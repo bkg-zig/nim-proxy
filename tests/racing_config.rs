@@ -57,7 +57,7 @@ async fn racing_control_plane_requires_admin() {
     }
     assert_error(client.post(proxy.url("/api/racing/config")).header("cookie", &reader).body("not JSON").send().await.unwrap(), 403, "forbidden").await;
     assert_eq!(std::fs::read(proxy.data_dir.join("config.json")).unwrap(), before);
-    assert_eq!(mock.hit_count(), 0, "management requests never contact NIM");
+    assert_eq!(mock.state.hit_count(), 0, "management requests never contact NIM");
 }
 
 #[tokio::test]
@@ -128,7 +128,7 @@ async fn racing_configuration_is_validated_atomic_and_durable() {
     cookie = login(&proxy).await;
     let actual = client.get(proxy.url("/api/racing/config")).header("cookie", &cookie).send().await.unwrap().text().await.unwrap();
     assert_eq!(actual, initial);
-    assert_eq!(mock.hit_count(), 0);
+    assert_eq!(mock.state.hit_count(), 0);
 }
 
 #[tokio::test]
@@ -165,5 +165,22 @@ async fn racing_and_strict_passthrough_are_mutually_exclusive() {
     limits["strict_passthrough"] = json!(true);
     assert_error(client.post(proxy.url("/api/settings/limits")).header("cookie", &cookie).json(&limits).send().await.unwrap(), 400, "invalid_config").await;
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    assert_eq!(mock.hit_count(), 0);
+    assert_eq!(mock.state.hit_count(), 0);
+}
+
+#[tokio::test]
+async fn racing_save_failure_keeps_store_and_runtime() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    let cookie = login(&proxy).await;
+    let client = Client::new();
+    let before = std::fs::read(proxy.data_dir.join("config.json")).unwrap();
+    // Occupying the writer's temporary filename with a directory induces a
+    // real I/O failure without changing the valid committed store.
+    std::fs::create_dir(proxy.data_dir.join("config.json.tmp")).unwrap();
+    assert_error(client.post(proxy.url("/api/racing/config")).header("cookie", &cookie).json(&json!({"enabled":true,"strategy":parallel()})).send().await.unwrap(), 400, "invalid_config").await;
+    assert_eq!(std::fs::read(proxy.data_dir.join("config.json")).unwrap(), before);
+    let actual = client.get(proxy.url("/api/racing/config")).header("cookie", &cookie).send().await.unwrap().text().await.unwrap();
+    assert_eq!(actual, "{\"enabled\":false,\"strategy\":null}");
+    assert_eq!(mock.state.hit_count(), 0);
 }

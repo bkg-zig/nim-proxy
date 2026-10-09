@@ -258,6 +258,7 @@ async fn mock_chat(
             std::future::pending().await
         } else {
             body.guard.complete = true;
+            drop(body);
             None
         }
     });
