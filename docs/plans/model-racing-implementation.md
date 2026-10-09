@@ -1,6 +1,53 @@
 # Plan — Model Racing Implementation
 
-**Status:** Draft - design phase, 2026-10-07 (UTC+8)
+**Status:** Repair in progress, 2026-10-09 (Asia/Shanghai).
+
+## Current repair contract (supersedes the draft below)
+
+The owner requested repair after the handoff audit reproduced eight compile
+errors and found placeholder upstream functions, disconnected racing, ordered
+winner selection, detached loser tasks, and unvalidated volatile configuration.
+Integration branch: `feature/model-racing`. Work item:
+`codex/model-racing-repair`, isolated in `.worktrees/model-racing-repair`.
+
+- **Outcome:** deliver the existing opt-in full-parallel, smart fallback and
+  streaming TTFT strategies through `POST /v1/chat/completions`, with durable
+  admin-managed configuration and truthful race observations.
+- **Proof:** preserve the compiler failure as the build regression; commit
+  behavioral tests before implementation and observe red then green using
+  `cargo test --test racing` and `cargo test --test racing_config`. Then run
+  `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`,
+  generated OpenAPI and route-contract tests, documentation/link checks and
+  `git diff --check`, following the test strategy. All HTTP tests use synthetic
+  stores and a local mock; no production key or NIM request is needed.
+- **Constraint:** disabled requests keep their existing route and wire behavior;
+  each participant uses the existing dispatcher and model governor; cancellation
+  cannot refund an already-sent RPM slot. Preserve absolute deadline and stream
+  disconnect ownership. Keep main, the running service, the sibling localization
+  branch, stash and untracked reports unchanged.
+- **Ponytail Rung:** 2/5: reuse settings::commit, reqwest, FuturesUnordered,
+  dispatcher/governor and the existing test harness, without new dependencies.
+- **Act:** compile-only repairs first, behavioral red checks next, implementation
+  and independent review before final commit. Root owns integration and proof;
+  delegates own control-plane, reusable foundation and independent E2E tests.
+
+Scope delta shown to the owner before implementation: complete the disconnected
+feature through the existing chat endpoint and its existing racing management
+API. No new `/v1/race` route, per-request race override, Dashboard controls,
+quality-based model selection, live benchmarking, deployment or localization
+merge is part of this repair. Configuration is disabled by default, limited to
+five unique models, and serialized as an optional store field (absent when off).
+For streaming, all enabled strategies select the first valid content, reasoning
+or tool-call delta; comments, empty deltas and terminal errors cannot win.
+Smart fallback cancels the timed-out primary before starting fallback contenders.
+
+### Fresh proof record
+
+- Audit at `41d77d5`: `cargo test --locked --offline` failed compilation with
+  eight errors and four warnings; `cargo fmt --check` failed. No Rust test ran.
+  Locale, i18n, source syntax/assets and agent-guide guards passed. Historical
+  reports of speed gains are not performance acceptance evidence.
+- Repair proof and independent review: pending.
 
 ## Authority and Scope
 

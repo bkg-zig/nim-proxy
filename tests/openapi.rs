@@ -69,8 +69,8 @@ fn spec_is_usable() {
         .map(|item| item.as_object().expect("path item").len())
         .sum();
     assert_eq!(
-        operation_count, 17,
-        "15 /api/* operations + the 2 setup operations"
+        operation_count, 21,
+        "19 /api/* operations + the 2 setup operations"
     );
     assert_eq!(
         paths["/api/locale-bootstrap"]["get"]["security"]
@@ -168,6 +168,33 @@ fn spec_is_usable() {
     assert_eq!(security["session_cookie"]["name"], "nimproxy_session");
     assert_eq!(security["basic_auth"]["type"], "http");
     assert_eq!(security["basic_auth"]["scheme"], "basic");
+}
+
+#[test]
+fn racing_operations_have_typed_admin_contracts() {
+    let spec: serde_json::Value =
+        serde_json::from_str(&nim_proxy::openapi_json()).expect("the spec is JSON");
+    for (path, method, response_type) in [
+        ("/api/racing/config", "get", "RacingConfigResponse"),
+        ("/api/racing/config", "post", "OkResponse"),
+        ("/api/racing/stats", "get", "PerformanceStatsResponse"),
+        ("/api/racing/ranked", "get", "PerformanceStatsResponse"),
+    ] {
+        let operation = &spec["paths"][path][method];
+        assert!(operation.is_object(), "racing-openapi: missing {method} {path}");
+        assert!(operation.get("security").is_none(), "racing-openapi: inherit operator authentication");
+        assert_eq!(operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"], format!("#/components/schemas/{response_type}"));
+        for status in ["401", "403", "503"] {
+            assert_eq!(operation["responses"][status]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/ApiError", "racing-openapi: {method} {path} {status}");
+        }
+    }
+    let write = &spec["paths"]["/api/racing/config"]["post"];
+    assert_eq!(write["requestBody"]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/UpdateRacingConfigRequest");
+    for status in ["400", "413", "415", "422"] {
+        assert_eq!(write["responses"][status]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/ApiError");
+    }
+    assert_eq!(spec["components"]["schemas"]["ModelStatsEntry"]["required"], serde_json::json!(["avg_tokens_per_sec", "avg_ttft_ms", "name", "success_rate", "successful_requests", "total_requests"]));
+    assert!(spec["components"]["schemas"]["RaceStrategy"].is_object());
 }
 
 #[test]

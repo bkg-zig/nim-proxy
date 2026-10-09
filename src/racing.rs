@@ -14,8 +14,8 @@ use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
-use crate::dispatch::Slot;
-use crate::observation::SseObserver;
+
+
 use crate::AppState;
 
 /// Racing strategy configuration
@@ -47,7 +47,6 @@ impl Default for RaceStrategy {
 }
 
 /// Result of a model race
-#[derive(Debug)]
 pub struct RaceResult {
     /// The winning model
     pub winner: String,
@@ -62,7 +61,6 @@ pub struct RaceResult {
 }
 
 /// Response from a race participant
-#[derive(Debug)]
 pub enum RaceResponse {
     /// Buffered response
     Buffered(Bytes),
@@ -235,7 +233,7 @@ pub async fn race_ttft(
     }
 
     // Race to first token
-    let (winner_model, mut winner_stream) = race_streams_to_first_token(streams).await?;
+    let (winner_model, winner_stream) = race_streams_to_first_token(streams).await?;
 
     let ttft = Instant::now().duration_since(started);
 
@@ -278,7 +276,9 @@ async fn race_streams_to_first_token(
         .collect();
 
     // Wait for first successful chunk
-    let ((winner_idx, first_chunk), _, _) = select_all(futures).await;
+    let (result, _, remaining) = select_all(futures).await;
+    drop(remaining);
+    let (winner_idx, first_chunk) = result.map_err(|error| RaceError::AllFailed { errors: vec![("unknown".into(), error)] })?;
 
     // Extract winner and prepend first chunk to its stream
     let (winner_model, winner_stream) = streams.swap_remove(winner_idx);
@@ -286,7 +286,7 @@ async fn race_streams_to_first_token(
     let prepended_stream = stream::once(async move { Ok(first_chunk) })
         .chain(winner_stream);
 
-    Ok((winner_model, prepended_stream))
+    Ok((winner_model, Box::pin(prepended_stream)))
 }
 
 /// Send a single model request (placeholder - will integrate with existing proxy code)
@@ -307,9 +307,9 @@ async fn send_streaming_request(
     _model: String,
     _body: Bytes,
     _headers: axum::http::HeaderMap,
-) -> Result<impl Stream<Item = Result<Bytes, String>> + Unpin, String> {
+) -> Result<futures_util::stream::Empty<Result<Bytes, String>>, String> {
     // TODO: Integrate with existing proxy::streaming logic
-    Err("Not yet implemented")
+    Err("Not yet implemented".to_string())
 }
 
 #[derive(Debug)]
