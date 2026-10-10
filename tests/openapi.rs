@@ -181,19 +181,48 @@ fn racing_operations_have_typed_admin_contracts() {
         ("/api/racing/ranked", "get", "PerformanceStatsResponse"),
     ] {
         let operation = &spec["paths"][path][method];
-        assert!(operation.is_object(), "racing-openapi: missing {method} {path}");
-        assert!(operation.get("security").is_none(), "racing-openapi: inherit operator authentication");
-        assert_eq!(operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"], format!("#/components/schemas/{response_type}"));
+        assert!(
+            operation.is_object(),
+            "racing-openapi: missing {method} {path}"
+        );
+        assert!(
+            operation.get("security").is_none(),
+            "racing-openapi: inherit operator authentication"
+        );
+        assert_eq!(
+            operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            format!("#/components/schemas/{response_type}")
+        );
         for status in ["401", "403", "503"] {
-            assert_eq!(operation["responses"][status]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/ApiError", "racing-openapi: {method} {path} {status}");
+            assert_eq!(
+                operation["responses"][status]["content"]["application/json"]["schema"]["$ref"],
+                "#/components/schemas/ApiError",
+                "racing-openapi: {method} {path} {status}"
+            );
         }
     }
     let write = &spec["paths"]["/api/racing/config"]["post"];
-    assert_eq!(write["requestBody"]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/UpdateRacingConfigRequest");
+    assert_eq!(
+        write["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/UpdateRacingConfigRequest"
+    );
     for status in ["400", "413", "415", "422"] {
-        assert_eq!(write["responses"][status]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/ApiError");
+        assert_eq!(
+            write["responses"][status]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/ApiError"
+        );
     }
-    assert_eq!(spec["components"]["schemas"]["ModelStatsEntry"]["required"], serde_json::json!(["avg_tokens_per_sec", "avg_ttft_ms", "name", "success_rate", "successful_requests", "total_requests"]));
+    assert_eq!(
+        spec["components"]["schemas"]["ModelStatsEntry"]["required"],
+        serde_json::json!([
+            "avg_tokens_per_sec",
+            "avg_ttft_ms",
+            "name",
+            "success_rate",
+            "successful_requests",
+            "total_requests"
+        ])
+    );
     assert!(spec["components"]["schemas"]["RaceStrategy"].is_object());
 }
 

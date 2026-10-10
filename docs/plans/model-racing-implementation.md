@@ -1,6 +1,6 @@
 # Plan — Model Racing Implementation
 
-**Status:** Repair in progress, 2026-10-09 (Asia/Shanghai).
+**Status:** Repair integration and final verification, 2026-10-10 (Asia/Shanghai).
 
 ## Current repair contract (supersedes the draft below)
 
@@ -47,7 +47,22 @@ Smart fallback cancels the timed-out primary before starting fallback contenders
   eight errors and four warnings; `cargo fmt --check` failed. No Rust test ran.
   Locale, i18n, source syntax/assets and agent-guide guards passed. Historical
   reports of speed gains are not performance acceptance evidence.
-- Repair proof and independent review: pending.
+- Regression commits `bd76fa0` and `df21970` preserve the original behavioral
+  failures. Continuation initially passed 221 library tests, 15 racing HTTP
+  tests, 6 racing configuration tests and 119 existing E2E tests (one existing
+  release-only test ignored).
+- Independent review identified SSE framing and post-selection observation
+  defects. The expanded HTTP suite reproduced seven failing tests (16 passed):
+  CR-only framing, no-space `event:error`, successful classification after a
+  winner's error, the pre-token byte bound counting post-token bytes, and three
+  checks preserving the historical `ttft_winner` cancellation label. Root will
+  repair these before the final complete verification. This stays within the
+  original truthful-observation and streaming contracts.
+- Independent source review: foundation/client/measurement repair approved by
+  the foundation reviewer (8 performance and 3 client tests passed). The same
+  independent reviewer approved the config validation, serialized publication,
+  authorization ordering and typed API contract; final data-plane review is
+  pending the SSE fixes.
 
 ## Authority and Scope
 

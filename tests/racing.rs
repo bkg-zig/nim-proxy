@@ -76,11 +76,23 @@ impl ModelReply {
             hang: false,
         }
     }
+
+    fn sse(body: impl Into<Bytes>) -> Self {
+        Self {
+            status: StatusCode::OK,
+            content_type: "text/event-stream",
+            before: Vec::new(),
+            gate: None,
+            after: vec![body.into()],
+            hang: false,
+        }
+    }
 }
 
 #[derive(Default)]
 struct Observations {
     calls: Vec<(String, String)>,
+    bodies: Vec<Value>,
     emitted: HashMap<String, usize>,
     cancelled: HashMap<String, usize>,
 }
@@ -217,6 +229,7 @@ async fn mock_chat(
         .calls
         .push((model.clone(), key));
     state.changed.notify_one();
+    state.observations.lock().unwrap().bodies.push(body);
     let reply = state
         .replies
         .get(&model)
@@ -343,6 +356,10 @@ async fn disabled_racing_preserves_requested_model_and_body() {
     let (status, body) = request(&proxy, false, None).await.unwrap();
     winner(status, &body, ORIGINAL);
     assert_eq!(mock.calls(), [ORIGINAL]);
+    assert_eq!(
+        mock.state.observations.lock().unwrap().bodies,
+        [chat_body("racing regression", false)]
+    );
 }
 
 #[tokio::test]
@@ -411,7 +428,29 @@ async fn smart_timeout_drops_primary_and_uses_fallback() {
     permits_released(&proxy, &[SLOW, FAST]).await;
 }
 
-async fn semantic_stream_winner(delta: Value) {
+#[tokio::test]
+async fn smart_primary_failure_starts_fallback_before_primary_timeout() {
+    let mock = ModelMock::start(vec![
+        (SLOW, ModelReply::failure()),
+        (FAST, ModelReply::json(FAST)),
+    ])
+    .await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(
+        &proxy,
+        Some(json!({"type": "smart", "primary_model": SLOW, "fallback_models": [FAST], "primary_timeout_ms": 4000})),
+    )
+    .await;
+    let (status, body) = tokio::time::timeout(Duration::from_secs(2), request(&proxy, false, None))
+        .await
+        .expect("a failed primary must not wait for its four-second timeout")
+        .unwrap();
+    winner(status, &body, FAST);
+    assert_eq!(mock.calls(), [SLOW, FAST]);
+}
+
+async fn semantic_stream_winner(delta: Value, strategy: Value) {
+    let ttft = strategy["type"] == "ttft_racing";
     let loser_initial = ": loser-preface\n\ndata: {\"id\":\"loser-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n";
     let winner_initial = ": winner-preface\n\ndata: {\"id\":\"winner-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n";
     let token = format!("data: {}\n\n", json!({"id": "winner-token", "choices": [{"index": 0, "delta": delta}]}));
@@ -442,11 +481,7 @@ async fn semantic_stream_winner(delta: Value) {
     };
     let mock = ModelMock::start(vec![(SLOW, slow), (FAST, fast)]).await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(json!({"type": "ttft_racing", "models": [SLOW, FAST]})),
-    )
-    .await;
+    configure(&proxy, Some(strategy)).await;
     let response = request(&proxy, true, None);
     mock.wait_for("both role-only prefixes", |seen| {
         [SLOW, FAST]
@@ -464,21 +499,160 @@ async fn semantic_stream_winner(delta: Value) {
     assert!(!body.contains("loser-"), "loser bytes escaped: {body}");
     mock.cancelled(SLOW).await;
     permits_released(&proxy, &[SLOW, FAST]).await;
+    if ttft {
+        let text = metrics(&proxy).await;
+        assert!(
+            text.contains("nimproxy_race_cancelled_total{reason=\"ttft_winner\"} 1"),
+            "TTFT cancellation must preserve its metric label: {text}"
+        );
+    }
 }
 
 #[tokio::test]
 async fn ttft_ignores_comments_and_empty_roles_until_content() {
-    semantic_stream_winner(json!({"content": "answer"})).await;
+    semantic_stream_winner(
+        json!({"content": "answer"}),
+        json!({"type": "ttft_racing", "models": [SLOW, FAST]}),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn ttft_accepts_reasoning_as_first_meaningful_delta() {
-    semantic_stream_winner(json!({"reasoning_content": "thinking"})).await;
+    semantic_stream_winner(
+        json!({"reasoning_content": "thinking"}),
+        json!({"type": "ttft_racing", "models": [SLOW, FAST]}),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn ttft_accepts_tool_call_as_first_meaningful_delta() {
-    semantic_stream_winner(json!({"tool_calls": [{"index": 0, "id": "call-1", "type": "function", "function": {"name": "weather", "arguments": "{"}}]})).await;
+    semantic_stream_winner(
+        json!({"tool_calls": [{"index": 0, "id": "call-1", "type": "function", "function": {"name": "weather", "arguments": "{"}}]}),
+        json!({"type": "ttft_racing", "models": [SLOW, FAST]}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn full_parallel_streaming_also_waits_for_meaningful_content() {
+    semantic_stream_winner(json!({"content": "answer"}), parallel(&[SLOW, FAST])).await;
+}
+
+#[tokio::test]
+async fn ttft_terminal_or_invalid_prefix_cannot_beat_valid_content() {
+    for invalid in [
+        "data: {\"error\":{\"message\":\"private provider failure\"}}\n\n",
+        "event: error\ndata: {\"message\":\"private provider failure\"}\n\n",
+        "data: [DONE]\n\n",
+        "data: {not valid json}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+    ] {
+        let gate = Arc::new(Semaphore::new(0));
+        let mut slow = ModelReply::sse(invalid);
+        slow.hang = true;
+        let mut fast = ModelReply::sse(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"valid winner\"}}]}\n\ndata: [DONE]\n\n",
+        );
+        fast.gate = Some(gate.clone());
+        let mock = ModelMock::start(vec![(SLOW, slow), (FAST, fast)]).await;
+        let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+        configure(
+            &proxy,
+            Some(json!({"type": "ttft_racing", "models": [SLOW, FAST]})),
+        )
+        .await;
+        let response = request(&proxy, true, None);
+        mock.called(&[SLOW, FAST]).await;
+        // Cancellation before opening the successful body proves rejection
+        // happens at the terminal event, not only after another model wins.
+        mock.cancelled(SLOW).await;
+        gate.add_permits(1);
+        let (status, body) = response.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "candidate prefix: {invalid}");
+        assert!(body.contains("valid winner"), "candidate prefix: {invalid}; response: {body}");
+        assert!(!body.contains("private provider failure"), "loser error escaped: {body}");
+        permits_released(&proxy, &[SLOW, FAST]).await;
+    }
+}
+
+#[tokio::test]
+async fn all_failed_streams_return_one_terminal_race_error() {
+    let mock = ModelMock::start(vec![
+        (SLOW, ModelReply::sse("data: {\"error\":{\"message\":\"provider failure\"}}\n\n")),
+        (FAST, ModelReply::sse("data: [DONE]\n\n")),
+    ])
+    .await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(
+        &proxy,
+        Some(json!({"type": "ttft_racing", "models": [SLOW, FAST]})),
+    )
+    .await;
+    let (status, body) = request(&proxy, true, None).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "stream has already committed: {body}");
+    assert_eq!(body.matches("race_failed").count(), 1, "all failed: {body}");
+    assert!(!body.contains("provider failure"), "loser error escaped: {body}");
+    permits_released(&proxy, &[SLOW, FAST]).await;
+}
+
+#[tokio::test]
+async fn ttft_rejects_no_space_error_event_with_content_shaped_data() {
+    let mock = ModelMock::start(vec![(SLOW, ModelReply::sse(
+        "event:error\ndata: {\"choices\":[{\"delta\":{\"content\":\"must not win\"}}]}\n\n",
+    ))])
+    .await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(
+        &proxy,
+        Some(json!({"type": "ttft_racing", "models": [SLOW]})),
+    )
+    .await;
+    let (status, body) = request(&proxy, true, None).await.unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("race_failed"), "error events cannot win: {body}");
+    assert!(!body.contains("must not win"), "error payload escaped: {body}");
+}
+
+#[tokio::test]
+async fn ttft_accepts_cr_only_event_framing() {
+    let wire = "data: {\"choices\":[{\"delta\":{\"content\":\"CR winner\"}}]}\r\rdata: [DONE]\r\r";
+    let mock = ModelMock::start(vec![(FAST, ModelReply::sse(wire))]).await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(
+        &proxy,
+        Some(json!({"type": "ttft_racing", "models": [FAST]})),
+    )
+    .await;
+    let (status, body) = request(&proxy, true, None).await.unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains(wire), "CR is a valid SSE line ending: {body}");
+    assert!(!body.contains("race_failed"));
+}
+
+#[tokio::test]
+async fn ttft_prefix_bound_does_not_reject_bytes_after_winning_event() {
+    let prefix = format!(": {}\n\n", "p".repeat(63 * 1024));
+    let token = "data: {\"choices\":[{\"delta\":{\"content\":\"bounded winner\"}}]}\n\n";
+    let tail = format!(": {}\n\ndata: [DONE]\n\n", "t".repeat(4096));
+    let gate = Arc::new(Semaphore::new(0));
+    let mut fast = ModelReply::sse(format!("{token}{tail}"));
+    fast.before = vec![Bytes::from(prefix.clone())];
+    fast.gate = Some(gate.clone());
+    let mock = ModelMock::start(vec![(FAST, fast)]).await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(
+        &proxy,
+        Some(json!({"type": "ttft_racing", "models": [FAST]})),
+    )
+    .await;
+    let response = request(&proxy, true, None);
+    mock.wait_for("preselection prefix", |seen| seen.emitted.get(FAST) == Some(&1)).await;
+    gate.add_permits(1);
+    let (status, body) = response.await.unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains(&format!("{prefix}{token}{tail}")), "postwinner bytes must not count against prefix bound; response length: {}", body.len());
 }
 
 #[tokio::test]
@@ -604,4 +778,186 @@ async fn disconnect_releases_race_inflight_and_governor_permits() {
     configure(&proxy, None).await;
     let (status, body) = request(&proxy, false, Some(1000)).await.unwrap();
     winner(status, &body, ORIGINAL);
+}
+
+#[tokio::test]
+async fn streaming_deadline_cancels_before_and_after_winner_selection() {
+    for has_winner in [false, true] {
+        let mut slow = ModelReply::sse(": still waiting\n\n");
+        slow.hang = true;
+        let mut fast = ModelReply::sse(if has_winner {
+            "data: {\"choices\":[{\"delta\":{\"content\":\"selected winner\"}}]}\n\n"
+        } else {
+            ": also waiting\n\n"
+        });
+        fast.hang = true;
+        let mock = ModelMock::start(vec![(SLOW, slow), (FAST, fast)]).await;
+        let proxy = start_proxy_with(
+            &mock.url,
+            StoreOpts { stream_idle_secs: 0, ..StoreOpts::default() },
+            &[],
+        )
+        .await;
+        configure(
+            &proxy,
+            Some(json!({"type": "ttft_racing", "models": [SLOW, FAST]})),
+        )
+        .await;
+        let (status, body) = request(&proxy, true, Some(500)).await.unwrap();
+        assert_eq!(status, StatusCode::OK, "stream has already committed: {body}");
+        assert_eq!(body.matches("deadline_exceeded").count(), 1, "deadline: {body}");
+        assert_eq!(body.contains("selected winner"), has_winner);
+        mock.cancelled(SLOW).await;
+        mock.cancelled(FAST).await;
+        permits_released(&proxy, &[SLOW, FAST]).await;
+    }
+}
+
+#[tokio::test]
+async fn disconnect_before_selection_cancels_every_candidate() {
+    let (slow, _slow_gate) = ModelReply::gated(SLOW);
+    let (fast, _fast_gate) = ModelReply::gated(FAST);
+    let mock = ModelMock::start(vec![
+        (SLOW, slow),
+        (FAST, fast),
+        (ORIGINAL, ModelReply::json(ORIGINAL)),
+    ])
+    .await;
+    let proxy = start_proxy_with(
+        &mock.url,
+        StoreOpts { max_inflight: 1, stream_idle_secs: 0, ..StoreOpts::default() },
+        &[],
+    )
+    .await;
+    configure(&proxy, Some(parallel(&[SLOW, FAST]))).await;
+    let response = client()
+        .post(proxy.url("/v1/chat/completions"))
+        .json(&chat_body("disconnect before winner", true))
+        .send()
+        .await
+        .unwrap();
+    mock.called(&[SLOW, FAST]).await;
+    drop(response);
+    mock.cancelled(SLOW).await;
+    mock.cancelled(FAST).await;
+    permits_released(&proxy, &[SLOW, FAST]).await;
+    configure(&proxy, None).await;
+    let (status, body) = request(&proxy, false, Some(1000)).await.unwrap();
+    winner(status, &body, ORIGINAL);
+}
+
+#[tokio::test]
+async fn racing_contender_waits_for_existing_model_governor_permit() {
+    let mut fast = ModelReply::sse(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"holds model permit\"}}]}\n\n",
+    );
+    fast.hang = true;
+    let mock = ModelMock::start(vec![(FAST, fast)]).await;
+    let proxy = start_proxy_with(
+        &mock.url,
+        StoreOpts { max_inflight: 2, stream_idle_secs: 0, ..StoreOpts::default() },
+        &[],
+    )
+    .await;
+    let cookie = login(&proxy).await;
+    let set_governor = client()
+        .post(proxy.url("/api/settings/governor"))
+        .header(header::COOKIE, &cookie)
+        .json(&json!({"enabled": true, "set_override": {"model": FAST, "cap": 1}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(set_governor.status(), StatusCode::OK);
+    configure(&proxy, Some(parallel(&[FAST]))).await;
+    let response = client()
+        .post(proxy.url("/v1/chat/completions"))
+        .json(&chat_body("holds model permit", true))
+        .send()
+        .await
+        .unwrap();
+    let mut stream = response.bytes_stream();
+    let mut prefix = String::new();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while !prefix.contains("holds model permit") {
+            prefix.push_str(&String::from_utf8_lossy(&stream.next().await.unwrap().unwrap()));
+        }
+    })
+    .await
+    .expect("first winner owns the model permit");
+    let (status, body) = request(&proxy, false, Some(300)).await.unwrap();
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "contender must wait: {body}");
+    assert_eq!(mock.calls(), [FAST], "model cap must govern every contender");
+    drop(stream);
+    mock.cancelled(FAST).await;
+    permits_released(&proxy, &[FAST]).await;
+}
+
+#[tokio::test]
+async fn postselection_errors_and_unterminated_streams_are_not_successes() {
+    for tail in [
+        "event: error\ndata: {\"error\":{\"message\":\"late failure\"}}\n\n",
+        "",
+    ] {
+        let gate = Arc::new(Semaphore::new(0));
+        let prefix = "data: {\"choices\":[{\"delta\":{\"content\":\"partial answer\"}}]}\n\n";
+        let mut fast = ModelReply::sse(tail);
+        fast.before = vec![Bytes::from_static(prefix.as_bytes())];
+        fast.gate = Some(gate.clone());
+        let mock = ModelMock::start(vec![(FAST, fast)]).await;
+        let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+        configure(
+            &proxy,
+            Some(json!({"type": "ttft_racing", "models": [FAST]})),
+        )
+        .await;
+        let cookie = login(&proxy).await;
+        // Three failed selected streams would wrongly qualify this model for
+        // ranked results if EOF alone were counted as successful completion.
+        for _ in 0..3 {
+            let response = client()
+                .post(proxy.url("/v1/chat/completions"))
+                .json(&chat_body("late failure", true))
+                .send()
+                .await
+                .unwrap();
+            let mut stream = response.bytes_stream();
+            let mut body = String::new();
+            tokio::time::timeout(Duration::from_secs(4), async {
+                while !body.contains("partial answer") {
+                    body.push_str(&String::from_utf8_lossy(&stream.next().await.unwrap().unwrap()));
+                }
+            })
+            .await
+            .expect("meaningful prefix must select winner before the tail");
+            gate.add_permits(1);
+            while let Some(chunk) = stream.next().await {
+                body.push_str(&String::from_utf8_lossy(&chunk.unwrap()));
+            }
+            assert!(body.contains(&format!("{prefix}{tail}")), "winner bytes moved: {body}");
+        }
+        let stats: Value = client()
+            .get(proxy.url("/api/racing/stats"))
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let model = &stats["models"][0];
+        assert_eq!(model["name"], FAST);
+        assert_eq!(model["total_requests"], 3);
+        assert_eq!(model["successful_requests"], 0, "late failure counted as success: {stats}");
+        assert_eq!(model["success_rate"], 0.0);
+        let ranked: Value = client()
+            .get(proxy.url("/api/racing/ranked"))
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(ranked["models"], json!([]), "failed streams must not earn a rank");
+    }
 }
