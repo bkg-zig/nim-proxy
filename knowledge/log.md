@@ -6,6 +6,20 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-10] component — complete opt-in model racing repair
+
+The configured chat-racing path now uses owned contender futures and the
+existing governor/RPM admission. Explicit admin configuration persists through
+the normal transaction; streaming selection requires meaningful SSE data and
+retains cancellation/deadline ownership. Independent review exposed CR/event
+framing, prefix-boundary and erroneous-success observations; committed red
+regressions now pass. Final local proof passed 378 tests with one existing
+release-only test ignored, plus Clippy, formatting and documentation guards.
+The [model-racing component](architecture/model-racing.md),
+[operator guide](../docs/features/model-racing.md), and
+[repair plan](../docs/plans/model-racing-implementation.md) own behavior,
+limitations and delivery evidence. No live NIM speedup is inferred.
+
 ## [2026-10-07] maintenance — verify the local Chinese catalog at the guard entry point
 
 The local handoff audit reproduced that `locale_v1.py --all` inspected English

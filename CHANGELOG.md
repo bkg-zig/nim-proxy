@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in model racing for `POST /v1/chat/completions`: parallel selection,
+  primary-with-fallback selection, and first-meaningful-delta streaming. Each
+  candidate uses the existing RPM dispatcher and model governor. Losers are
+  cancelled; sent RPM remains consumed. Streaming disconnects and caller
+  deadlines cancel all owned work.
+- Admin-only racing configuration and statistics APIs with generated OpenAPI.
+  The validated policy persists as an optional config-v1 field, is disabled by
+  default, and cannot be enabled with strict passthrough. Enabling it explicitly
+  replaces the client's requested model with the configured candidates.
+
 ### Fixed
+
+- Racing compilation, completion-order selection, task cancellation and
+  performance sample accounting. Missing TTFT is excluded from rankings;
+  buffered completion latency is never reported as time to first token.
 
 - Installed locale definitions now jointly drive locale bootstrap, public and
   operator catalog bytes, and route acceptance. Catalog URLs accept valid

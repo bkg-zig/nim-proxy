@@ -128,9 +128,7 @@ impl ModelMock {
         let app = Router::new()
             .route("/v1/chat/completions", post(mock_chat))
             .with_state(state.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         Self { url, state, server }
@@ -153,9 +151,11 @@ impl ModelMock {
 
     async fn called(&self, models: &[&str]) {
         self.wait_for("all expected model calls", |seen| {
-            models
-                .iter()
-                .all(|model| seen.calls.iter().any(|(called, _)| called.as_str() == *model))
+            models.iter().all(|model| {
+                seen.calls
+                    .iter()
+                    .any(|(called, _)| called.as_str() == *model)
+            })
         })
         .await;
     }
@@ -307,10 +307,16 @@ fn parallel(models: &[&str]) -> Value {
     json!({"type": "full_parallel", "models": models})
 }
 
-fn request(proxy: &Proxy, stream: bool, deadline_ms: Option<u64>) -> JoinHandle<(StatusCode, String)> {
+fn request(
+    proxy: &Proxy,
+    stream: bool,
+    deadline_ms: Option<u64>,
+) -> JoinHandle<(StatusCode, String)> {
     let url = proxy.url("/v1/chat/completions");
     tokio::spawn(async move {
-        let mut request = client().post(url).json(&chat_body("racing regression", stream));
+        let mut request = client()
+            .post(url)
+            .json(&chat_body("racing regression", stream));
         if let Some(deadline) = deadline_ms {
             request = request.header("x-nim-proxy-deadline-ms", deadline.to_string());
         }
@@ -330,9 +336,10 @@ async fn permits_released(proxy: &Proxy, models: &[&str]) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
     loop {
         let text = metrics(proxy).await;
-        if models.iter().all(|model| {
-            text.contains(&format!("nimproxy_model_inflight{{model=\"{model}\"}} 0"))
-        }) {
+        if models
+            .iter()
+            .all(|model| text.contains(&format!("nimproxy_model_inflight{{model=\"{model}\"}} 0")))
+        {
             return;
         }
         assert!(
@@ -389,7 +396,11 @@ async fn failed_candidate_does_not_beat_a_later_success() {
     fast_gate.add_permits(1);
     let (status, body) = response.await.unwrap();
     winner(status, &body, FAST);
-    assert_eq!(mock.calls().len(), 2, "non-retryable failure is not retried");
+    assert_eq!(
+        mock.calls().len(),
+        2,
+        "non-retryable failure is not retried"
+    );
 }
 
 #[tokio::test]
@@ -453,7 +464,10 @@ async fn semantic_stream_winner(delta: Value, strategy: Value) {
     let ttft = strategy["type"] == "ttft_racing";
     let loser_initial = ": loser-preface\n\ndata: {\"id\":\"loser-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n";
     let winner_initial = ": winner-preface\n\ndata: {\"id\":\"winner-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n";
-    let token = format!("data: {}\n\n", json!({"id": "winner-token", "choices": [{"index": 0, "delta": delta}]}));
+    let token = format!(
+        "data: {}\n\n",
+        json!({"id": "winner-token", "choices": [{"index": 0, "delta": delta}]})
+    );
     let tail = "data: {\"id\":\"winner-tail\",\"choices\":[{\"delta\":{\"content\":\"after winner\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
     let gate = Arc::new(Semaphore::new(0));
     let slow = ModelReply {
@@ -580,7 +594,10 @@ async fn ttft_terminal_or_invalid_prefix_cannot_beat_valid_content() {
 #[tokio::test]
 async fn all_failed_streams_return_one_terminal_race_error() {
     let mock = ModelMock::start(vec![
-        (SLOW, ModelReply::sse("data: {\"error\":{\"message\":\"provider failure\"}}\n\n")),
+        (
+            SLOW,
+            ModelReply::sse("data: {\"error\":{\"message\":\"provider failure\"}}\n\n"),
+        ),
         (FAST, ModelReply::sse("data: [DONE]\n\n")),
     ])
     .await;
@@ -591,17 +608,27 @@ async fn all_failed_streams_return_one_terminal_race_error() {
     )
     .await;
     let (status, body) = request(&proxy, true, None).await.unwrap();
-    assert_eq!(status, StatusCode::OK, "stream has already committed: {body}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "stream has already committed: {body}"
+    );
     assert_eq!(body.matches("race_failed").count(), 1, "all failed: {body}");
-    assert!(!body.contains("provider failure"), "loser error escaped: {body}");
+    assert!(
+        !body.contains("provider failure"),
+        "loser error escaped: {body}"
+    );
     permits_released(&proxy, &[SLOW, FAST]).await;
 }
 
 #[tokio::test]
 async fn ttft_rejects_no_space_error_event_with_content_shaped_data() {
-    let mock = ModelMock::start(vec![(SLOW, ModelReply::sse(
-        "event:error\ndata: {\"choices\":[{\"delta\":{\"content\":\"must not win\"}}]}\n\n",
-    ))])
+    let mock = ModelMock::start(vec![(
+        SLOW,
+        ModelReply::sse(
+            "event:error\ndata: {\"choices\":[{\"delta\":{\"content\":\"must not win\"}}]}\n\n",
+        ),
+    )])
     .await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
     configure(
@@ -611,8 +638,14 @@ async fn ttft_rejects_no_space_error_event_with_content_shaped_data() {
     .await;
     let (status, body) = request(&proxy, true, None).await.unwrap();
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("race_failed"), "error events cannot win: {body}");
-    assert!(!body.contains("must not win"), "error payload escaped: {body}");
+    assert!(
+        body.contains("race_failed"),
+        "error events cannot win: {body}"
+    );
+    assert!(
+        !body.contains("must not win"),
+        "error payload escaped: {body}"
+    );
 }
 
 #[tokio::test]
@@ -648,11 +681,18 @@ async fn ttft_prefix_bound_does_not_reject_bytes_after_winning_event() {
     )
     .await;
     let response = request(&proxy, true, None);
-    mock.wait_for("preselection prefix", |seen| seen.emitted.get(FAST) == Some(&1)).await;
+    mock.wait_for("preselection prefix", |seen| {
+        seen.emitted.get(FAST) == Some(&1)
+    })
+    .await;
     gate.add_permits(1);
     let (status, body) = response.await.unwrap();
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains(&format!("{prefix}{token}{tail}")), "postwinner bytes must not count against prefix bound; response length: {}", body.len());
+    assert!(
+        body.contains(&format!("{prefix}{token}{tail}")),
+        "postwinner bytes must not count against prefix bound; response length: {}",
+        body.len()
+    );
 }
 
 #[tokio::test]
@@ -706,7 +746,11 @@ async fn deadline_cancels_inflight_and_queued_candidates_without_bypassing_rpm()
     // following request is admitted at the client cap, then expires in queue.
     configure(&proxy, None).await;
     let (status, body) = request(&proxy, false, Some(150)).await.unwrap();
-    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "after deadline: {body}");
+    assert_eq!(
+        status,
+        StatusCode::GATEWAY_TIMEOUT,
+        "after deadline: {body}"
+    );
     assert_eq!(mock.calls().len(), 1, "sent RPM cannot be double spent");
     permits_released(&proxy, &[SLOW, FAST, THIRD, ORIGINAL]).await;
 }
@@ -771,7 +815,11 @@ async fn disconnect_releases_race_inflight_and_governor_permits() {
     .expect("winner should be selected while loser is blocked");
     mock.cancelled(SLOW).await;
     let (status, _) = request(&proxy, false, None).await.unwrap();
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "open winner holds the one client inflight permit");
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "open winner holds the one client inflight permit"
+    );
     drop(stream);
     mock.cancelled(FAST).await;
     permits_released(&proxy, &[SLOW, FAST]).await;
@@ -794,7 +842,10 @@ async fn streaming_deadline_cancels_before_and_after_winner_selection() {
         let mock = ModelMock::start(vec![(SLOW, slow), (FAST, fast)]).await;
         let proxy = start_proxy_with(
             &mock.url,
-            StoreOpts { stream_idle_secs: 0, ..StoreOpts::default() },
+            StoreOpts {
+                stream_idle_secs: 0,
+                ..StoreOpts::default()
+            },
             &[],
         )
         .await;
@@ -804,8 +855,16 @@ async fn streaming_deadline_cancels_before_and_after_winner_selection() {
         )
         .await;
         let (status, body) = request(&proxy, true, Some(500)).await.unwrap();
-        assert_eq!(status, StatusCode::OK, "stream has already committed: {body}");
-        assert_eq!(body.matches("deadline_exceeded").count(), 1, "deadline: {body}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "stream has already committed: {body}"
+        );
+        assert_eq!(
+            body.matches("deadline_exceeded").count(),
+            1,
+            "deadline: {body}"
+        );
         assert_eq!(body.contains("selected winner"), has_winner);
         mock.cancelled(SLOW).await;
         mock.cancelled(FAST).await;
@@ -825,7 +884,11 @@ async fn disconnect_before_selection_cancels_every_candidate() {
     .await;
     let proxy = start_proxy_with(
         &mock.url,
-        StoreOpts { max_inflight: 1, stream_idle_secs: 0, ..StoreOpts::default() },
+        StoreOpts {
+            max_inflight: 1,
+            stream_idle_secs: 0,
+            ..StoreOpts::default()
+        },
         &[],
     )
     .await;
@@ -855,7 +918,11 @@ async fn racing_contender_waits_for_existing_model_governor_permit() {
     let mock = ModelMock::start(vec![(FAST, fast)]).await;
     let proxy = start_proxy_with(
         &mock.url,
-        StoreOpts { max_inflight: 2, stream_idle_secs: 0, ..StoreOpts::default() },
+        StoreOpts {
+            max_inflight: 2,
+            stream_idle_secs: 0,
+            ..StoreOpts::default()
+        },
         &[],
     )
     .await;
@@ -879,14 +946,24 @@ async fn racing_contender_waits_for_existing_model_governor_permit() {
     let mut prefix = String::new();
     tokio::time::timeout(Duration::from_secs(4), async {
         while !prefix.contains("holds model permit") {
-            prefix.push_str(&String::from_utf8_lossy(&stream.next().await.unwrap().unwrap()));
+            prefix.push_str(&String::from_utf8_lossy(
+                &stream.next().await.unwrap().unwrap(),
+            ));
         }
     })
     .await
     .expect("first winner owns the model permit");
     let (status, body) = request(&proxy, false, Some(300)).await.unwrap();
-    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "contender must wait: {body}");
-    assert_eq!(mock.calls(), [FAST], "model cap must govern every contender");
+    assert_eq!(
+        status,
+        StatusCode::GATEWAY_TIMEOUT,
+        "contender must wait: {body}"
+    );
+    assert_eq!(
+        mock.calls(),
+        [FAST],
+        "model cap must govern every contender"
+    );
     drop(stream);
     mock.cancelled(FAST).await;
     permits_released(&proxy, &[FAST]).await;
@@ -924,7 +1001,9 @@ async fn postselection_errors_and_unterminated_streams_are_not_successes() {
             let mut body = String::new();
             tokio::time::timeout(Duration::from_secs(4), async {
                 while !body.contains("partial answer") {
-                    body.push_str(&String::from_utf8_lossy(&stream.next().await.unwrap().unwrap()));
+                    body.push_str(&String::from_utf8_lossy(
+                        &stream.next().await.unwrap().unwrap(),
+                    ));
                 }
             })
             .await
@@ -933,7 +1012,10 @@ async fn postselection_errors_and_unterminated_streams_are_not_successes() {
             while let Some(chunk) = stream.next().await {
                 body.push_str(&String::from_utf8_lossy(&chunk.unwrap()));
             }
-            assert!(body.contains(&format!("{prefix}{tail}")), "winner bytes moved: {body}");
+            assert!(
+                body.contains(&format!("{prefix}{tail}")),
+                "winner bytes moved: {body}"
+            );
         }
         let stats: Value = client()
             .get(proxy.url("/api/racing/stats"))
@@ -947,7 +1029,10 @@ async fn postselection_errors_and_unterminated_streams_are_not_successes() {
         let model = &stats["models"][0];
         assert_eq!(model["name"], FAST);
         assert_eq!(model["total_requests"], 3);
-        assert_eq!(model["successful_requests"], 0, "late failure counted as success: {stats}");
+        assert_eq!(
+            model["successful_requests"], 0,
+            "late failure counted as success: {stats}"
+        );
         assert_eq!(model["success_rate"], 0.0);
         let ranked: Value = client()
             .get(proxy.url("/api/racing/ranked"))
@@ -958,6 +1043,10 @@ async fn postselection_errors_and_unterminated_streams_are_not_successes() {
             .json()
             .await
             .unwrap();
-        assert_eq!(ranked["models"], json!([]), "failed streams must not earn a rank");
+        assert_eq!(
+            ranked["models"],
+            json!([]),
+            "failed streams must not earn a rank"
+        );
     }
 }

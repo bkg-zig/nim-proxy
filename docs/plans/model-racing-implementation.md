@@ -1,6 +1,6 @@
 # Plan — Model Racing Implementation
 
-**Status:** Repair integration and final verification, 2026-10-10 (Asia/Shanghai).
+**Status:** Repair complete and locally verified, 2026-10-10 (Asia/Shanghai).
 
 ## Current repair contract (supersedes the draft below)
 
@@ -55,16 +55,53 @@ Smart fallback cancels the timed-out primary before starting fallback contenders
   defects. The expanded HTTP suite reproduced seven failing tests (16 passed):
   CR-only framing, no-space `event:error`, successful classification after a
   winner's error, the pre-token byte bound counting post-token bytes, and three
-  checks preserving the historical `ttft_winner` cancellation label. Root will
-  repair these before the final complete verification. This stays within the
+  checks preserving the historical `ttft_winner` cancellation label. Commit
+  `945f256` preserves those regression cases. All seven failures are repaired.
+  This stays within the
   original truthful-observation and streaming contracts.
 - Independent source review: foundation/client/measurement repair approved by
   the foundation reviewer (8 performance and 3 client tests passed). The same
   independent reviewer approved the config validation, serialized publication,
-  authorization ordering and typed API contract; final data-plane review is
-  pending the SSE fixes.
+  authorization ordering and typed API contract. Final data-plane re-review
+  approved the SSE fixes and found no remaining blockers.
+- Final exact working-tree proof in the isolated Rust container:
+  `cargo test --locked --offline -- --test-threads=4` passed **378 tests**:
+  221 library, 119 existing E2E, 9 OpenAPI, 23 racing, 6 racing-config.
+  The existing `release_restart_and_idle_history` release-only test remains
+  ignored (one skipped). No test failed.
+- `cargo clippy --locked --offline --all-targets -- -D warnings` and
+  `cargo fmt --check` passed. Agent-guide selftest passed all 12 negative
+  controls; current links, both locale catalogs, 452 i18n references and
+  `git diff --check` passed. Windows locale checks ran with Python's `-X utf8`
+  because the host's default GBK decoder cannot read the UTF-8 catalogs.
+- The resulting 21-operation OpenAPI file matches code generation. Operator
+  documentation and architecture memory explain opt-in model replacement,
+  increased RPM use, cancellation, sample limitations and configuration.
+  Historical draft speedup/HTTP protocol claims are explicitly withdrawn as
+  acceptance evidence.
 
-## Authority and Scope
+### Completed scope and delivery boundaries
+
+- [x] Compile and connect all three strategies to chat POSTs.
+- [x] Preserve default routing, limiter/governor, cancellation and deadlines.
+- [x] Persist/admin-gate/validate configuration and reject strict conflicts.
+- [x] Count actual TTFT samples; reject erroneous/incomplete stream successes.
+- [x] Independently review and pass the complete local proof set above.
+- [x] Update generated API contract, usage docs, knowledge and release notes.
+
+Delivery remains on `codex/model-racing-repair` for review against
+`feature/model-racing`. No production deployment, NIM performance benchmark,
+localization merge, remote push or PR publication was performed. Release CI
+coverage/MSRV/security jobs were not run locally; they remain publication
+gates. The running service, main branch, sibling localization work, stash and
+original untracked reports are outside this repair.
+
+## Archived initial design (superseded by the repair contract above)
+
+The following draft preserves design provenance. Its proposed endpoint,
+deferred streaming scope, and unchecked draft tasks are not current work.
+
+### Authority and Scope
 
 Implementation of model racing/tournament functionality to allow concurrent requests to multiple models with first-response-wins semantics. This addresses the use case mentioned in Rambler's model tournament where comparative model performance evaluation is needed.
 
