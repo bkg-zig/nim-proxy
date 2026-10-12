@@ -195,14 +195,36 @@ impl Pool {
     /// concurrent in-flight requests evenly across keys. An out-of-range
     /// `prefer` (computed against a pool that has since shrunk) is ignored.
     pub fn reserve(&self, prefer: Option<usize>) -> Reservation {
+        self.reserve_inner(prefer, None)
+    }
+
+    /// Prefer keys not yet granted to this race, while immediately reusing a
+    /// ready key if diversity would require waiting. Key identity survives
+    /// live pool rebuilds that reorder lanes.
+    pub fn reserve_avoiding(
+        &self,
+        prefer: Option<usize>,
+        used_keys: &HashSet<String>,
+    ) -> Reservation {
+        self.reserve_inner(prefer, Some(used_keys))
+    }
+
+    fn reserve_inner(
+        &self,
+        prefer: Option<usize>,
+        used_keys: Option<&HashSet<String>>,
+    ) -> Reservation {
         let now = Instant::now();
-        if let Some(p) = prefer.filter(|&p| p < self.active) {
+        let is_used = |lane: &Lane| used_keys.is_some_and(|keys| keys.contains(&lane.key));
+        if let Some(p) = prefer.filter(|&p| p < self.active && !is_used(&self.lanes[p])) {
             if let Some(r) = self.try_take(p, now, true) {
                 return r;
             }
         }
 
-        let mut ready: Vec<(usize, usize)> = Vec::new(); // (in-window load, lane)
+        // Diversity wins among currently ready keys, then affinity, then the
+        // existing least-loaded rule. None of these preferences adds a wait.
+        let mut ready: Vec<(bool, bool, usize, usize)> = Vec::new();
         let mut best_wait = WINDOW;
         for (i, lane) in self.lanes[..self.active].iter().enumerate() {
             let cooldown = *lane.cooldown_until.lock().unwrap();
@@ -221,28 +243,20 @@ impl Pool {
             };
             let ready_at = window_ready.max(cooldown);
             if ready_at <= now {
-                ready.push((sent.len(), i));
+                ready.push((is_used(lane), prefer != Some(i), sent.len(), i));
             } else {
                 best_wait = best_wait.min(ready_at - now);
             }
         }
         ready.sort_unstable();
-        for (_, i) in ready {
-            if let Some(r) = self.try_take(i, now, false) {
+        for (_, _, _, i) in ready {
+            if let Some(r) = self.try_take(i, now, prefer == Some(i)) {
                 return r;
             }
         }
         Reservation::Wait(best_wait)
     }
 
-    /// Reserve for a racing request, preferring keys not yet granted to it.
-    pub fn reserve_avoiding(
-        &self,
-        prefer: Option<usize>,
-        _used_keys: &HashSet<String>,
-    ) -> Reservation {
-        self.reserve(prefer)
-    }
     /// Return a reserved slot that was never spent on an upstream request
     /// (e.g. the client hung up while queued).
     pub fn release(&self, lane: usize, stamp: Instant) {

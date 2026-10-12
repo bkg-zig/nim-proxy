@@ -4,19 +4,27 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Every participant consumes a separately governed upstream request. Policies
-/// are bounded to five distinct model ids and are disabled unless persisted.
+/// race at most five copies of the client-selected model and are disabled
+/// unless persisted. Retired multi-model policies parse only for migration errors.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RaceStrategy {
-    /// Race all models concurrently from the start.
+    /// Race identical request copies; zero delay launches all copies immediately.
+    SameModel {
+        #[schema(minimum = 1, maximum = 5)]
+        attempts: usize,
+        #[schema(minimum = 0, maximum = 300000)]
+        hedge_delay_ms: u64,
+    },
+    /// Retired multi-model policy. Replace with `same_model` before enabling.
     FullParallel { models: Vec<String> },
-    /// Start fallbacks when the primary fails or its delay expires.
+    /// Retired multi-model policy. Replace with `same_model` before enabling.
     Smart {
         primary_model: String,
         fallback_models: Vec<String>,
         primary_timeout_ms: u64,
     },
-    /// Race until a meaningful streamed delta; buffered requests race to completion.
+    /// Retired multi-model policy. Replace with `same_model` before enabling.
     TtftRacing { models: Vec<String> },
     /// No racing. An enabled durable policy may not use this variant.
     #[default]
@@ -26,44 +34,29 @@ pub enum RaceStrategy {
 impl RaceStrategy {
     /// Validate an enabled policy at every settings write and at startup.
     pub fn validate(&self) -> Result<(), String> {
-        let models: Vec<&str> = match self {
-            Self::FullParallel { models } | Self::TtftRacing { models } => {
-                models.iter().map(String::as_str).collect()
-            }
-            Self::Smart {
-                primary_model,
-                fallback_models,
-                primary_timeout_ms,
+        match self {
+            Self::SameModel {
+                attempts,
+                hedge_delay_ms,
             } => {
-                if !(1..=300_000).contains(primary_timeout_ms) {
-                    return Err("racing primary_timeout_ms must be between 1 and 300000".into());
+                if !(1..=5).contains(attempts) {
+                    return Err("racing attempts must be between 1 and 5".into());
                 }
-                std::iter::once(primary_model.as_str())
-                    .chain(fallback_models.iter().map(String::as_str))
-                    .collect()
+                if *hedge_delay_ms > 300_000 {
+                    return Err("racing hedge_delay_ms must be between 0 and 300000".into());
+                }
+                Ok(())
             }
-            Self::None => return Err("enabled racing requires a non-none strategy".into()),
-        };
-        if !(1..=5).contains(&models.len()) {
-            return Err("racing requires between 1 and 5 models".into());
+            Self::FullParallel { .. } | Self::Smart { .. } | Self::TtftRacing { .. } => {
+                Err(concat!(
+                    "legacy multi-model racing policies are retired; replace the policy with ",
+                    "{\"type\":\"same_model\",\"attempts\":2,\"hedge_delay_ms\":0} ",
+                    "using an explicit attempts value (1-5) and hedge_delay_ms (0-300000), ",
+                    "or remove the racing policy to disable it"
+                )
+                .into())
+            }
+            Self::None => Err("enabled racing requires a non-none strategy".into()),
         }
-        let mut seen = std::collections::HashSet::new();
-        for model in models {
-            if model.is_empty()
-                || model.len() > 128
-                || !model
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-' | b'/'))
-            {
-                return Err(
-                    "racing model ids must be 1-128 ASCII letters, digits, '.', '_', '-' or '/'"
-                        .into(),
-                );
-            }
-            if !seen.insert(model) {
-                return Err("racing model ids must be unique".into());
-            }
-        }
-        Ok(())
     }
 }

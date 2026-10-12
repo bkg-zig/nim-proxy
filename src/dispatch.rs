@@ -42,6 +42,7 @@ struct Waiter {
     reply: oneshot::Sender<Slot>,
     deadline: Instant,
     prefer: Option<usize>,
+    used_keys: Option<Arc<Mutex<HashSet<String>>>>,
 }
 
 impl Dispatcher {
@@ -56,12 +57,22 @@ impl Dispatcher {
     /// leaves the queue; a slot granted to an abandoned waiter is returned to
     /// the pool.
     pub fn acquire(&self, deadline: Instant, prefer: Option<usize>) -> oneshot::Receiver<Slot> {
+        self.enqueue(deadline, prefer, None)
+    }
+
+    fn enqueue(
+        &self,
+        deadline: Instant,
+        prefer: Option<usize>,
+        used_keys: Option<Arc<Mutex<HashSet<String>>>>,
+    ) -> oneshot::Receiver<Slot> {
         let (reply, rx) = oneshot::channel();
         gauge!("nimproxy_queue_depth").increment(1.0);
         let _ = self.queue.send(Waiter {
             reply,
             deadline,
             prefer,
+            used_keys,
         });
         rx
     }
@@ -71,9 +82,9 @@ impl Dispatcher {
         &self,
         deadline: Instant,
         prefer: Option<usize>,
-        _used_keys: Arc<Mutex<HashSet<String>>>,
+        used_keys: Arc<Mutex<HashSet<String>>>,
     ) -> oneshot::Receiver<Slot> {
-        self.acquire(deadline, prefer)
+        self.enqueue(deadline, prefer, Some(used_keys))
     }
 }
 
@@ -89,7 +100,10 @@ async fn run(handle: PoolHandle, mut queue: mpsc::UnboundedReceiver<Waiter>) {
             let (pool, reservation) = {
                 let guard = handle.read().unwrap();
                 let pool = guard.clone();
-                let r = pool.reserve(waiter.prefer);
+                let r = match &waiter.used_keys {
+                    Some(keys) => pool.reserve_avoiding(waiter.prefer, &keys.lock().unwrap()),
+                    None => pool.reserve(waiter.prefer),
+                };
                 (pool, r)
             };
             match reservation {
@@ -105,6 +119,7 @@ async fn run(handle: PoolHandle, mut queue: mpsc::UnboundedReceiver<Waiter>) {
                         Some(_) => "spill",
                     };
                     counter!("nimproxy_affinity_total", "result" => affinity).increment(1);
+                    let granted_key = waiter.used_keys.as_ref().map(|_| key.clone());
                     let slot = Slot {
                         pool: pool.clone(),
                         lane,
@@ -113,6 +128,12 @@ async fn run(handle: PoolHandle, mut queue: mpsc::UnboundedReceiver<Waiter>) {
                     if waiter.reply.send(slot).is_err() {
                         pool.release(lane, stamp);
                     } else {
+                        // Only this FIFO task grants slots. Record the key
+                        // before yielding or reserving for another waiter;
+                        // abandoned grants consume neither this set nor RPM.
+                        if let (Some(keys), Some(key)) = (&waiter.used_keys, granted_key) {
+                            keys.lock().unwrap().insert(key);
+                        }
                         tokio::time::sleep(GRANT_GAP).await;
                     }
                     break;
