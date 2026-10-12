@@ -88,6 +88,11 @@ build dependencies. Container test processes use synthetic temporary stores.
   bytes, exact injection-rejection retry bytes and RPM cost, and a racing
   request sharing the governor with an ordinary stream. Root reviewed these
   delegated assertions before committing this next red regression slice.
+- The complete-tool fix first passed 32 racing and 8 configuration tests.
+  Independent re-review then found text/reasoning could bypass validation of
+  accompanying malformed calls. A focused two-test run reproduced one failure
+  and one positive-control pass. Reviewed red rows also preserve null optional
+  call fields; empty call lists may accompany content but are not output alone.
 
 ## Requirement audit — 2026-10-12 (before implementation)
 

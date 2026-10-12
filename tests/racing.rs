@@ -346,7 +346,9 @@ async fn permits_released(proxy: &Proxy) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
     loop {
         let text = metrics(proxy).await;
-        if text.contains(&format!("nimproxy_model_inflight{{model=\"{ORIGINAL}\"}} 0")) {
+        if text.contains(&format!(
+            "nimproxy_model_inflight{{model=\"{ORIGINAL}\"}} 0"
+        )) {
             return;
         }
         assert!(
@@ -430,11 +432,18 @@ async fn racing_preserves_rich_request_bytes_and_uses_distinct_ready_keys() {
     {
         let seen = mock.state.observations.lock().unwrap();
         assert_eq!(seen.bodies, vec![payload; 3]);
-        assert!(seen.raw_bodies.iter().all(|body| body.as_ref() == wire.as_bytes()));
+        assert!(seen
+            .raw_bodies
+            .iter()
+            .all(|body| body.as_ref() == wire.as_bytes()));
         let mut keys: Vec<_> = seen.calls.iter().map(|(_, key)| key).collect();
         keys.sort();
         keys.dedup();
-        assert_eq!(keys.len(), 3, "spare attempts must prefer unused ready keys");
+        assert_eq!(
+            keys.len(),
+            3,
+            "spare attempts must prefer unused ready keys"
+        );
     }
     third_gate.add_permits(1);
     let response = response.await.unwrap();
@@ -483,13 +492,22 @@ async fn racing_preserves_rich_streaming_request_bytes_for_every_attempt() {
     {
         let seen = mock.state.observations.lock().unwrap();
         assert_eq!(seen.bodies, vec![payload; 2]);
-        assert!(seen.raw_bodies.iter().all(|body| body.as_ref() == wire.as_bytes()));
-        assert_ne!(seen.calls[0].1, seen.calls[1].1, "streaming copies should prefer different ready keys");
+        assert!(seen
+            .raw_bodies
+            .iter()
+            .all(|body| body.as_ref() == wire.as_bytes()));
+        assert_ne!(
+            seen.calls[0].1, seen.calls[1].1,
+            "streaming copies should prefer different ready keys"
+        );
     }
     gate.add_permits(1);
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.unwrap();
-    assert!(body.contains(winner_wire), "winning stream bytes moved: {body}");
+    assert!(
+        body.contains(winner_wire),
+        "winning stream bytes moved: {body}"
+    );
     mock.cancelled(SLOW).await;
     permits_released(&proxy).await;
 }
@@ -535,21 +553,39 @@ async fn racing_usage_rejection_retries_the_original_bytes_and_consumes_another_
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.text().await.unwrap();
-    assert!(body.contains(winner_wire), "injection fallback did not succeed: {body}");
+    assert!(
+        body.contains(winner_wire),
+        "injection fallback did not succeed: {body}"
+    );
     assert!(!body.contains("race_failed"));
     {
         let seen = mock.state.observations.lock().unwrap();
         let mut injected = payload.clone();
         injected["stream_options"] = json!({"include_usage": true});
         assert_eq!(seen.bodies, vec![injected, payload]);
-        assert_eq!(seen.raw_bodies[1].as_ref(), wire.as_bytes(), "the 400 fallback must use the untouched client body");
-        assert!(seen.calls.iter().all(|(_, key)| key == "Bearer usage-retry-key"));
+        assert_eq!(
+            seen.raw_bodies[1].as_ref(),
+            wire.as_bytes(),
+            "the 400 fallback must use the untouched client body"
+        );
+        assert!(seen
+            .calls
+            .iter()
+            .all(|(_, key)| key == "Bearer usage-retry-key"));
     }
     permits_released(&proxy).await;
     configure(&proxy, None).await;
     let (status, body) = request(&proxy, false, Some(150)).await.unwrap();
-    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "both injection and fallback sends consume RPM: {body}");
-    assert_eq!(mock.calls(), [SLOW, FAST], "the retry must not bypass or refund an RPM reservation");
+    assert_eq!(
+        status,
+        StatusCode::GATEWAY_TIMEOUT,
+        "both injection and fallback sends consume RPM: {body}"
+    );
+    assert_eq!(
+        mock.calls(),
+        [SLOW, FAST],
+        "the retry must not bypass or refund an RPM reservation"
+    );
     permits_released(&proxy).await;
 }
 
@@ -570,15 +606,30 @@ async fn single_ready_key_can_send_multiple_rpm_admitted_attempts() {
     configure(&proxy, Some(same_model(2, 0))).await;
     let response = request(&proxy, false, Some(2000));
     mock.called(&[SLOW, FAST]).await;
-    assert!(mock.state.observations.lock().unwrap().calls.iter().all(|(_, key)| key == "Bearer single-hedge-key"));
+    assert!(mock
+        .state
+        .observations
+        .lock()
+        .unwrap()
+        .calls
+        .iter()
+        .all(|(_, key)| key == "Bearer single-hedge-key"));
     second_gate.add_permits(1);
     let (status, body) = response.await.unwrap();
     winner(status, &body, FAST);
     mock.cancelled(SLOW).await;
     configure(&proxy, None).await;
     let (status, body) = request(&proxy, false, Some(150)).await.unwrap();
-    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "two sends exhaust the two-RPM key: {body}");
-    assert_eq!(mock.calls().len(), 2, "cancelling the first attempt cannot refund its sent slot");
+    assert_eq!(
+        status,
+        StatusCode::GATEWAY_TIMEOUT,
+        "two sends exhaust the two-RPM key: {body}"
+    );
+    assert_eq!(
+        mock.calls().len(),
+        2,
+        "cancelling the first attempt cannot refund its sent slot"
+    );
     permits_released(&proxy).await;
 }
 
@@ -605,11 +656,7 @@ async fn timely_primary_does_not_start_spare_attempts() {
     let (primary, gate) = AttemptReply::gated(SLOW);
     let mock = AttemptMock::start(vec![(SLOW, primary), (FAST, AttemptReply::json(FAST))]).await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(2, 300)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(2, 300))).await;
     let response = request(&proxy, false, None);
     mock.called(&[SLOW]).await;
     gate.add_permits(1);
@@ -624,11 +671,7 @@ async fn delayed_hedge_wins_and_drops_pending_primary() {
     let (primary, _gate) = AttemptReply::gated(SLOW);
     let mock = AttemptMock::start(vec![(SLOW, primary), (FAST, AttemptReply::json(FAST))]).await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(2, 150)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(2, 150))).await;
     let response = request(&proxy, false, None);
     mock.called(&[SLOW, FAST]).await;
     let (status, body) = response.await.unwrap();
@@ -646,8 +689,11 @@ async fn original_attempt_can_still_win_after_delayed_hedge_starts() {
     configure(&proxy, Some(same_model(2, 150))).await;
     let response = request(&proxy, false, None);
     mock.called(&[SLOW, FAST]).await;
-    assert_eq!(mock.state.observations.lock().unwrap().cancelled.get(SLOW), None,
-        "the original must remain eligible after launching the hedge");
+    assert_eq!(
+        mock.state.observations.lock().unwrap().cancelled.get(SLOW),
+        None,
+        "the original must remain eligible after launching the hedge"
+    );
     primary_gate.add_permits(1);
     let (status, body) = response.await.unwrap();
     winner(status, &body, SLOW);
@@ -667,10 +713,15 @@ async fn delayed_attempts_launch_one_at_a_time_while_previous_attempts_remain_pe
     mock.called(&[SLOW, FAST, THIRD]).await;
     {
         let seen = mock.state.observations.lock().unwrap();
-        assert!(seen.cancelled.is_empty(), "pending originals must remain competitors");
+        assert!(
+            seen.cancelled.is_empty(),
+            "pending originals must remain competitors"
+        );
         for pair in seen.started.windows(2) {
-            assert!(pair[1].duration_since(pair[0]) >= Duration::from_millis(200),
-                "a delayed launch must not fan out all remaining attempts at once");
+            assert!(
+                pair[1].duration_since(pair[0]) >= Duration::from_millis(200),
+                "a delayed launch must not fan out all remaining attempts at once"
+            );
         }
     }
     first_gate.add_permits(1);
@@ -689,11 +740,7 @@ async fn primary_failure_starts_spare_before_hedge_delay() {
     ])
     .await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(2, 4000)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(2, 4000))).await;
     let (status, body) = tokio::time::timeout(Duration::from_secs(2), request(&proxy, false, None))
         .await
         .expect("a failed primary must not wait for its four-second hedge delay")
@@ -716,6 +763,8 @@ async fn buffered_invalid_or_ineffective_json_cannot_beat_a_valid_completion() {
         json!({"choices": [{"message": {"role": "user", "content": "wrong role"}, "finish_reason": "stop"}]}).to_string(),
         json!({"choices": [{"message": {"role": "assistant", "tool_calls": [{"id": "call-1"}]}, "finish_reason": "tool_calls"}]}).to_string(),
         json!({"choices": [{"message": {"role": "assistant", "function_call": {"name": "weather"}}, "finish_reason": "function_call"}]}).to_string(),
+        json!({"choices": [{"message": {"role": "assistant", "content": "Calling weather now", "tool_calls": [{"id": "call-1"}]}, "finish_reason": "tool_calls"}]}).to_string(),
+        json!({"choices": [{"message": {"role": "assistant", "reasoning_content": "Check weather", "function_call": {"name": "weather"}}, "finish_reason": "function_call"}]}).to_string(),
         json!({"error": {"message": "private provider failure"}, "choices": [{"message": {"role": "assistant", "content": "error cannot win"}, "finish_reason": "stop"}]}).to_string(),
     ] {
         let (valid, gate) = AttemptReply::gated(FAST);
@@ -736,17 +785,25 @@ async fn buffered_invalid_or_ineffective_json_cannot_beat_a_valid_completion() {
 async fn buffered_completed_content_reasoning_tools_and_refusal_are_valid() {
     for message in [
         json!({"role": "assistant", "content": "answer"}),
+        json!({"role": "assistant", "content": "answer", "tool_calls": null, "function_call": null}),
+        json!({"role": "assistant", "content": "answer", "tool_calls": []}),
         json!({"role": "assistant", "content": null, "reasoning_content": "reasoning"}),
         json!({"role": "assistant", "content": null, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "weather", "arguments": "{}"}}]}),
         json!({"role": "assistant", "content": null, "function_call": {"name": "weather", "arguments": "{}"}}),
         json!({"role": "assistant", "content": null, "refusal": "cannot fulfill this request"}),
     ] {
-        let wire = json!({"model": ORIGINAL, "choices": [{"message": message, "finish_reason": "stop"}]}).to_string();
+        let wire =
+            json!({"model": ORIGINAL, "choices": [{"message": message, "finish_reason": "stop"}]})
+                .to_string();
         let mock = AttemptMock::start(vec![(SLOW, AttemptReply::raw_json(wire.clone()))]).await;
         let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
         configure(&proxy, Some(same_model(1, 0))).await;
         let (status, body) = request(&proxy, false, None).await.unwrap();
-        assert_eq!(status, StatusCode::OK, "completed assistant message rejected: {wire}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "completed assistant message rejected: {wire}"
+        );
         assert_eq!(body, wire, "winner response bytes must be preserved");
         permits_released(&proxy).await;
     }
@@ -817,20 +874,12 @@ async fn semantic_stream_winner(delta: Value, strategy: Value) {
 
 #[tokio::test]
 async fn stream_ignores_comments_and_empty_roles_until_content() {
-    semantic_stream_winner(
-        json!({"content": "answer"}),
-        same_model(2, 0),
-    )
-    .await;
+    semantic_stream_winner(json!({"content": "answer"}), same_model(2, 0)).await;
 }
 
 #[tokio::test]
 async fn stream_accepts_reasoning_as_first_meaningful_delta() {
-    semantic_stream_winner(
-        json!({"reasoning_content": "thinking"}),
-        same_model(2, 0),
-    )
-    .await;
+    semantic_stream_winner(json!({"reasoning_content": "thinking"}), same_model(2, 0)).await;
 }
 
 #[tokio::test]
@@ -895,11 +944,7 @@ async fn all_failed_streams_return_one_terminal_race_error() {
     ])
     .await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(2, 0)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(2, 0))).await;
     let (status, body) = request(&proxy, true, None).await.unwrap();
     assert_eq!(
         status,
@@ -924,11 +969,7 @@ async fn stream_rejects_no_space_error_event_with_content_shaped_data() {
     )])
     .await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(1, 0)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(1, 0))).await;
     let (status, body) = request(&proxy, true, None).await.unwrap();
     assert_eq!(status, StatusCode::OK);
     assert!(
@@ -946,11 +987,7 @@ async fn stream_accepts_cr_only_event_framing() {
     let wire = "data: {\"choices\":[{\"delta\":{\"content\":\"CR winner\"}}]}\r\rdata: [DONE]\r\r";
     let mock = AttemptMock::start(vec![(FAST, AttemptReply::sse(wire))]).await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(1, 0)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(1, 0))).await;
     let (status, body) = request(&proxy, true, None).await.unwrap();
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains(wire), "CR is a valid SSE line ending: {body}");
@@ -968,11 +1005,7 @@ async fn stream_prefix_bound_does_not_reject_bytes_after_winning_event() {
     fast.gate = Some(gate.clone());
     let mock = AttemptMock::start(vec![(FAST, fast)]).await;
     let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-    configure(
-        &proxy,
-        Some(same_model(1, 0)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(1, 0))).await;
     let response = request(&proxy, true, None);
     mock.wait_for("preselection prefix", |seen| {
         seen.emitted.get(FAST) == Some(&1)
@@ -1082,11 +1115,7 @@ async fn disconnect_releases_race_inflight_and_governor_permits() {
         .await
         .unwrap();
     assert_eq!(set_governor.status(), StatusCode::OK);
-    configure(
-        &proxy,
-        Some(same_model(2, 0)),
-    )
-    .await;
+    configure(&proxy, Some(same_model(2, 0))).await;
     let response = client()
         .post(proxy.url("/v1/chat/completions"))
         .json(&chat_body("disconnect winner", true))
@@ -1140,11 +1169,7 @@ async fn streaming_deadline_cancels_before_and_after_winner_selection() {
             &[],
         )
         .await;
-        configure(
-            &proxy,
-            Some(same_model(2, 0)),
-        )
-        .await;
+        configure(&proxy, Some(same_model(2, 0))).await;
         let (status, body) = request(&proxy, true, Some(500)).await.unwrap();
         assert_eq!(
             status,
@@ -1281,8 +1306,16 @@ async fn concurrent_attempts_share_the_original_model_governor() {
     assert_eq!(response.status(), StatusCode::OK);
     configure(&proxy, Some(same_model(3, 0))).await;
     let (status, body) = request(&proxy, false, Some(500)).await.unwrap();
-    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "shared governor deadline: {body}");
-    assert_eq!(mock.calls(), [SLOW], "three ready keys cannot bypass the one-per-model cap");
+    assert_eq!(
+        status,
+        StatusCode::GATEWAY_TIMEOUT,
+        "shared governor deadline: {body}"
+    );
+    assert_eq!(
+        mock.calls(),
+        [SLOW],
+        "three ready keys cannot bypass the one-per-model cap"
+    );
     mock.cancelled(SLOW).await;
     permits_released(&proxy).await;
 }
@@ -1300,11 +1333,7 @@ async fn postselection_errors_and_unterminated_streams_are_not_successes() {
         fast.gate = Some(gate.clone());
         let mock = AttemptMock::start(vec![(FAST, fast); 3]).await;
         let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
-        configure(
-            &proxy,
-            Some(same_model(1, 0)),
-        )
-        .await;
+        configure(&proxy, Some(same_model(1, 0))).await;
         let cookie = login(&proxy).await;
         // Three failed selected streams would wrongly qualify this model for
         // ranked results if EOF alone were counted as successful completion.
