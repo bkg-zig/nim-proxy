@@ -68,6 +68,11 @@ build dependencies. Container test processes use synthetic temporary stores.
   rebuild, and did not record granted group keys. Root independently reviewed
   the delegate's tests/stubs before the red commit; no selection semantics
   were implemented in those stubs.
+- Configuration red check `cargo test --locked --offline --test racing_config
+  -- --test-threads=4`: 8 ran, 6 failed and 2 passed. The old build accepted
+  legacy/mixed policies, started with a legacy store, and did not recognize
+  `same_model`. Root independently reviewed the delegated HTTP assertions and
+  retained exact save-failure boundary checks before the regression commit.
 
 ## Current scope — same-model request racing
 

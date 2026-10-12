@@ -7,16 +7,17 @@ use reqwest::{Client, Method, Response};
 use serde_json::{json, Value};
 use support::*;
 
-fn parallel() -> Value {
-    json!({"type":"full_parallel", "models":["nvidia/model-a", "model-b"]})
+fn same_model() -> Value {
+    json!({"type":"same_model", "attempts":2, "hedge_delay_ms":0})
 }
 
-async fn assert_error(response: Response, status: u16, code: &str) {
+async fn assert_error(response: Response, status: u16, code: &str) -> Value {
     assert_eq!(response.status().as_u16(), status);
     assert_eq!(response.headers()["content-type"], "application/json");
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["error"]["code"], code);
     assert_eq!(body["error"]["type"], "proxy_error");
+    body
 }
 
 #[tokio::test]
@@ -163,16 +164,9 @@ async fn racing_configuration_is_validated_atomic_and_durable() {
         json!({"enabled":true}),
         json!({"enabled":true,"strategy":null}),
         json!({"enabled":true,"strategy":{"type":"none"}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":[]}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":["a","a"]}}),
-        json!({"enabled":true,"strategy":{"type":"ttft_racing","models":["a","b","c","d","e","f"]}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":[""]}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":["a b"]}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":["a\nb"]}}),
-        json!({"enabled":true,"strategy":{"type":"full_parallel","models":["x".repeat(129)]}}),
-        json!({"enabled":true,"strategy":{"type":"smart","primary_model":"a","fallback_models":["a"],"primary_timeout_ms":1}}),
-        json!({"enabled":true,"strategy":{"type":"smart","primary_model":"a","fallback_models":["b"],"primary_timeout_ms":0}}),
-        json!({"enabled":true,"strategy":{"type":"smart","primary_model":"a","fallback_models":["b"],"primary_timeout_ms":300001}}),
+        json!({"enabled":true,"strategy":{"type":"same_model","attempts":0,"hedge_delay_ms":0}}),
+        json!({"enabled":true,"strategy":{"type":"same_model","attempts":6,"hedge_delay_ms":0}}),
+        json!({"enabled":true,"strategy":{"type":"same_model","attempts":2,"hedge_delay_ms":300001}}),
     ];
     for request in invalid {
         let before = std::fs::read(&config_path).unwrap();
@@ -224,9 +218,9 @@ async fn racing_configuration_is_validated_atomic_and_durable() {
         assert_eq!(std::fs::read(&config_path).unwrap(), before);
     }
     for strategy in [
-        parallel(),
-        json!({"type":"smart","primary_model":"a","fallback_models":[],"primary_timeout_ms":300000}),
-        json!({"type":"ttft_racing","models":["a","b","c","d","e"]}),
+        same_model(),
+        json!({"type":"same_model","attempts":1,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":5,"hedge_delay_ms":300000}),
     ] {
         let response = client
             .post(proxy.url("/api/racing/config"))
@@ -282,10 +276,115 @@ async fn racing_configuration_is_validated_atomic_and_durable() {
 }
 
 #[tokio::test]
+async fn legacy_racing_policies_require_explicit_migration_without_mutation() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    let client = Client::new();
+    let cookie = login(&proxy).await;
+    let before = std::fs::read(proxy.data_dir.join("config.json")).unwrap();
+    for strategy in [
+        json!({"type":"full_parallel","models":["a","b"]}),
+        json!({"type":"smart","primary_model":"a","fallback_models":["b"],"primary_timeout_ms":1}),
+        json!({"type":"ttft_racing","models":["a","b"]}),
+    ] {
+        let body = assert_error(
+            client
+                .post(proxy.url("/api/racing/config"))
+                .header("cookie", &cookie)
+                .json(&json!({"enabled":true,"strategy":strategy}))
+                .send()
+                .await
+                .unwrap(),
+            400,
+            "invalid_config",
+        )
+        .await;
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(message.contains("same_model"), "migration target: {body}");
+        assert!(message.contains("attempts"), "migration action: {body}");
+        assert!(
+            message.contains("hedge_delay_ms"),
+            "migration launch policy: {body}"
+        );
+        assert_eq!(
+            std::fs::read(proxy.data_dir.join("config.json")).unwrap(),
+            before,
+            "legacy policy must not be silently rewritten: {strategy}"
+        );
+        let actual: Value = client
+            .get(proxy.url("/api/racing/config"))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(actual, json!({"enabled":false,"strategy":null}));
+    }
+    assert_eq!(mock.state.hit_count(), 0);
+}
+
+#[tokio::test]
+async fn malformed_racing_strategy_fields_are_rejected_without_mutation() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    let client = Client::new();
+    let cookie = login(&proxy).await;
+    let before = std::fs::read(proxy.data_dir.join("config.json")).unwrap();
+    for strategy in [
+        json!({"type":"full_parallel","models":["a"],"attempts":2,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":0,"models":["a"]}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":0,"unknown":true}),
+        json!({"type":"same_model","attempts":2}),
+        json!({"type":"same_model","hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":-1,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":1.5,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":-1}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":0.5}),
+        json!({"type":"unknown","attempts":2,"hedge_delay_ms":0}),
+    ] {
+        assert_error(
+            client
+                .post(proxy.url("/api/racing/config"))
+                .header("cookie", &cookie)
+                .json(&json!({"enabled":true,"strategy":strategy}))
+                .send()
+                .await
+                .unwrap(),
+            422,
+            "invalid_json",
+        )
+        .await;
+        assert_eq!(
+            std::fs::read(proxy.data_dir.join("config.json")).unwrap(),
+            before,
+            "malformed policy changed durable bytes: {strategy}"
+        );
+        let actual: Value = client
+            .get(proxy.url("/api/racing/config"))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(actual, json!({"enabled":false,"strategy":null}));
+    }
+    assert_eq!(mock.state.hit_count(), 0);
+}
+
+#[tokio::test]
 async fn corrupt_racing_store_refuses_startup_without_rewriting_bytes() {
     for strategy in [
-        json!({"type":"full_parallel","models":[]}),
-        json!({"type":"smart","primary_model":"a","fallback_models":["b"],"primary_timeout_ms":0}),
+        json!({"type":"same_model","attempts":0,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":6,"hedge_delay_ms":0}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":300001}),
+        json!({"type":"same_model","attempts":2,"hedge_delay_ms":0,"models":["a"]}),
+        json!({"type":"full_parallel","models":["a"]}),
+        json!({"type":"smart","primary_model":"a","fallback_models":[],"primary_timeout_ms":1}),
+        json!({"type":"ttft_racing","models":["a"]}),
         json!({"type":"none"}),
         json!({"type":"unknown"}),
     ] {
@@ -313,7 +412,7 @@ async fn racing_and_strict_passthrough_are_mutually_exclusive() {
     let cookie = login(&proxy).await;
     let path = proxy.data_dir.join("config.json");
     let before = std::fs::read(&path).unwrap();
-    let enable = json!({"enabled":true, "strategy":parallel()});
+    let enable = json!({"enabled":true, "strategy":same_model()});
     assert_error(
         client
             .post(proxy.url("/api/racing/config"))
@@ -430,11 +529,11 @@ async fn racing_save_failure_keeps_store_and_runtime() {
     // Occupying the writer's temporary filename with a directory induces a
     // real I/O failure without changing the valid committed store.
     std::fs::create_dir(proxy.data_dir.join("config.json.tmp")).unwrap();
-    assert_error(
+    let body = assert_error(
         client
             .post(proxy.url("/api/racing/config"))
             .header("cookie", &cookie)
-            .json(&json!({"enabled":true,"strategy":parallel()}))
+            .json(&json!({"enabled":true,"strategy":same_model()}))
             .send()
             .await
             .unwrap(),
@@ -442,6 +541,13 @@ async fn racing_save_failure_keeps_store_and_runtime() {
         "invalid_config",
     )
     .await;
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("cannot write the config store"),
+        "the injected filesystem failure must reach the save boundary: {body}"
+    );
     assert_eq!(
         std::fs::read(proxy.data_dir.join("config.json")).unwrap(),
         before
