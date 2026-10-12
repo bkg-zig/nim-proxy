@@ -93,6 +93,18 @@ build dependencies. Container test processes use synthetic temporary stores.
   accompanying malformed calls. A focused two-test run reproduced one failure
   and one positive-control pass. Reviewed red rows also preserve null optional
   call fields; empty call lists may accompany content but are not output alone.
+- The complete Rust suite and Clippy passed after the data-plane repair.
+  Strict synthetic load passed: 100 clients x 3 requests, 300 completions,
+  598 upstream sends (199/199/200 across three 40-RPM keys), zero client
+  failures and zero rate violations over 247.145 seconds. The wrapper verified
+  the enabled two-copy policy and exactly 300 `same_model` race observations,
+  then reaped every process it started. This used the optimized test profile,
+  not a release build; it proves synthetic rate safety, not live NIM speedup.
+- Final schema review found utoipa did not carry the enum's unknown-field
+  restriction into named variant schemas. A reviewed OpenAPI regression failed
+  at missing `maxProperties` (null versus 3). Since all variant properties are
+  required, supported property-count caps close those schemas without custom
+  schema machinery or runtime changes. Final verification follows this fix.
 
 ## Requirement audit — 2026-10-12 (before implementation)
 
