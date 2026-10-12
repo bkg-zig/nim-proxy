@@ -445,6 +445,115 @@ async fn racing_preserves_rich_request_bytes_and_uses_distinct_ready_keys() {
 }
 
 #[tokio::test]
+async fn racing_preserves_rich_streaming_request_bytes_for_every_attempt() {
+    let winner_wire = "data: {\"choices\":[{\"delta\":{\"content\":\"streaming winner\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+    let mut first = AttemptReply::sse(winner_wire);
+    first.gate = Some(Arc::new(Semaphore::new(0)));
+    let gate = Arc::new(Semaphore::new(0));
+    let mut second = AttemptReply::sse(winner_wire);
+    second.gate = Some(gate.clone());
+    let mock = AttemptMock::start(vec![(SLOW, first), (FAST, second)]).await;
+    let proxy = start_proxy_with(&mock.url, StoreOpts::default(), &[]).await;
+    configure(&proxy, Some(same_model(2, 0))).await;
+    let payload = json!({
+        "model": ORIGINAL,
+        "messages": [
+            {"role": "system", "content": "Keep the streaming request intact."},
+            {"role": "user", "content": [{"type": "text", "text": "weather?"}]},
+            {"role": "assistant", "content": null, "tool_calls": [{"id": "previous", "type": "function", "function": {"name": "weather", "arguments": "{\"city\":\"Paris\"}"}}]},
+            {"role": "tool", "tool_call_id": "previous", "content": "sunny"}
+        ],
+        "tools": [{"type": "function", "function": {"name": "weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}}}}],
+        "tool_choice": "auto", "parallel_tool_calls": true,
+        "temperature": 0.37, "top_p": 0.83, "seed": 17, "max_tokens": 41,
+        "stop": ["END"], "presence_penalty": 0.2, "frequency_penalty": 0.4,
+        "stream": true,
+        // Existing stream_options must prevent injection or reserialization.
+        "stream_options": {"include_usage": true}
+    });
+    let wire = format!("  {}\n", serde_json::to_string_pretty(&payload).unwrap());
+    let response = client()
+        .post(proxy.url("/v1/chat/completions"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(wire.clone())
+        .send()
+        .await
+        .unwrap();
+    mock.called(&[SLOW, FAST]).await;
+    {
+        let seen = mock.state.observations.lock().unwrap();
+        assert_eq!(seen.bodies, vec![payload; 2]);
+        assert!(seen.raw_bodies.iter().all(|body| body.as_ref() == wire.as_bytes()));
+        assert_ne!(seen.calls[0].1, seen.calls[1].1, "streaming copies should prefer different ready keys");
+    }
+    gate.add_permits(1);
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    assert!(body.contains(winner_wire), "winning stream bytes moved: {body}");
+    mock.cancelled(SLOW).await;
+    permits_released(&proxy).await;
+}
+
+#[tokio::test]
+async fn racing_usage_rejection_retries_the_original_bytes_and_consumes_another_rpm_slot() {
+    let winner_wire = "data: {\"choices\":[{\"delta\":{\"content\":\"untouched retry\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+    let mock = AttemptMock::start(vec![
+        (SLOW, AttemptReply::failure()),
+        (FAST, AttemptReply::sse(winner_wire)),
+    ])
+    .await;
+    let proxy = start_proxy_with(
+        &mock.url,
+        StoreOpts {
+            nim_keys: vec![("usage-retry-key".into(), 2)],
+            ..StoreOpts::default()
+        },
+        &[],
+    )
+    .await;
+    // One configured contender must still perform its injection retry. A
+    // second contender cannot hide a missing retry, and both sends cost RPM.
+    configure(&proxy, Some(same_model(1, 0))).await;
+    let payload = json!({
+        "model": ORIGINAL, "stream": true,
+        "messages": [
+            {"role": "system", "content": "Preserve tool and sampling semantics."},
+            {"role": "user", "content": "weather?"}
+        ],
+        "tools": [{"type": "function", "function": {"name": "weather", "parameters": {"type": "object"}}}],
+        "tool_choice": "auto", "temperature": 0.37, "top_p": 0.83,
+        "seed": 17, "max_tokens": 41, "stop": ["END"]
+    });
+    let wire = format!("  {}\n", serde_json::to_string_pretty(&payload).unwrap());
+    let response = client()
+        .post(proxy.url("/v1/chat/completions"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-nim-proxy-deadline-ms", "2000")
+        .body(wire.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    assert!(body.contains(winner_wire), "injection fallback did not succeed: {body}");
+    assert!(!body.contains("race_failed"));
+    {
+        let seen = mock.state.observations.lock().unwrap();
+        let mut injected = payload.clone();
+        injected["stream_options"] = json!({"include_usage": true});
+        assert_eq!(seen.bodies, vec![injected, payload]);
+        assert_eq!(seen.raw_bodies[1].as_ref(), wire.as_bytes(), "the 400 fallback must use the untouched client body");
+        assert!(seen.calls.iter().all(|(_, key)| key == "Bearer usage-retry-key"));
+    }
+    permits_released(&proxy).await;
+    configure(&proxy, None).await;
+    let (status, body) = request(&proxy, false, Some(150)).await.unwrap();
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "both injection and fallback sends consume RPM: {body}");
+    assert_eq!(mock.calls(), [SLOW, FAST], "the retry must not bypass or refund an RPM reservation");
+    permits_released(&proxy).await;
+}
+
+#[tokio::test]
 async fn single_ready_key_can_send_multiple_rpm_admitted_attempts() {
     let (first, _first_gate) = AttemptReply::gated(SLOW);
     let (second, second_gate) = AttemptReply::gated(FAST);
@@ -605,6 +714,8 @@ async fn buffered_invalid_or_ineffective_json_cannot_beat_a_valid_completion() {
         json!({"choices": [{"message": {"role": "assistant", "content": "unfinished"}, "finish_reason": ""}]}).to_string(),
         json!({"choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}]}).to_string(),
         json!({"choices": [{"message": {"role": "user", "content": "wrong role"}, "finish_reason": "stop"}]}).to_string(),
+        json!({"choices": [{"message": {"role": "assistant", "tool_calls": [{"id": "call-1"}]}, "finish_reason": "tool_calls"}]}).to_string(),
+        json!({"choices": [{"message": {"role": "assistant", "function_call": {"name": "weather"}}, "finish_reason": "function_call"}]}).to_string(),
         json!({"error": {"message": "private provider failure"}, "choices": [{"message": {"role": "assistant", "content": "error cannot win"}, "finish_reason": "stop"}]}).to_string(),
     ] {
         let (valid, gate) = AttemptReply::gated(FAST);
@@ -627,6 +738,7 @@ async fn buffered_completed_content_reasoning_tools_and_refusal_are_valid() {
         json!({"role": "assistant", "content": "answer"}),
         json!({"role": "assistant", "content": null, "reasoning_content": "reasoning"}),
         json!({"role": "assistant", "content": null, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "weather", "arguments": "{}"}}]}),
+        json!({"role": "assistant", "content": null, "function_call": {"name": "weather", "arguments": "{}"}}),
         json!({"role": "assistant", "content": null, "refusal": "cannot fulfill this request"}),
     ] {
         let wire = json!({"model": ORIGINAL, "choices": [{"message": message, "finish_reason": "stop"}]}).to_string();
@@ -1114,7 +1226,6 @@ async fn racing_contender_waits_for_existing_model_governor_permit() {
         .await
         .unwrap();
     assert_eq!(set_governor.status(), StatusCode::OK);
-    configure(&proxy, Some(same_model(1, 0))).await;
     let response = client()
         .post(proxy.url("/v1/chat/completions"))
         .json(&chat_body("holds model permit", true))
@@ -1131,7 +1242,8 @@ async fn racing_contender_waits_for_existing_model_governor_permit() {
         }
     })
     .await
-    .expect("first winner owns the model permit");
+    .expect("ordinary stream owns the model permit");
+    configure(&proxy, Some(same_model(1, 0))).await;
     let (status, body) = request(&proxy, false, Some(300)).await.unwrap();
     assert_eq!(
         status,

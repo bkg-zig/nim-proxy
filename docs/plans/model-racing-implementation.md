@@ -73,8 +73,23 @@ build dependencies. Container test processes use synthetic temporary stores.
   legacy/mixed policies, started with a legacy store, and did not recognize
   `same_model`. Root independently reviewed the delegated HTTP assertions and
   retained exact save-failure boundary checks before the regression commit.
+- Continuation recovered the original HTTP red output: 30 ran, 29 failed at
+  the missing `same_model` configuration and one helper passed. Independent
+  review approved the HTTP regressions before commit `243da65`. Those failures
+  prove the missing policy contract, not every later data-plane failure path.
+- First integrated green check: 30 racing and 8 configuration tests passed.
+  The focused pool/dispatcher `--lib racing_` check passed all 7 tests.
+  Independent source review approved config validation and key allocation;
+  commit `4512bfd` records those green slices.
+- Review found the buffered gate accepted partial streaming tool data as a
+  terminal completion. Expanded HTTP proof ran 32 tests: 31 passed, and the
+  invalid-completion test failed because the ID-only tool response won before
+  the valid spare could launch. Additional passing checks prove rich streaming
+  bytes, exact injection-rejection retry bytes and RPM cost, and a racing
+  request sharing the governor with an ordinary stream. Root reviewed these
+  delegated assertions before committing this next red regression slice.
 
-## Current scope — same-model request racing
+## Requirement audit — 2026-10-12 (before implementation)
 
 The owner clarified the intended behavior on 2026-10-12:
 “同一个模型发起多个请求，采用最先有效响应的结果”. Preserve the
