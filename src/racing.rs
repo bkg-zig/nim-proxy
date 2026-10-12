@@ -6,85 +6,121 @@ use metrics::counter;
 use std::future::Future;
 use std::time::Duration;
 
-pub(crate) struct Winner<T> {
-    pub model: String,
-    pub value: T,
-}
-
-pub(crate) async fn select<T, F, Fut>(
-    strategy: RaceStrategy,
-    mut attempt: F,
-) -> Result<Winner<T>, ()>
+pub(crate) async fn select<T, F, Fut>(strategy: RaceStrategy, mut attempt: F) -> Result<T, ()>
 where
-    F: FnMut(String) -> Fut,
+    F: FnMut(usize) -> Fut,
     Fut: Future<Output = Result<T, ()>>,
 {
-    let kind = match &strategy {
-        RaceStrategy::FullParallel { .. } => "full_parallel",
-        RaceStrategy::Smart { .. } => "smart",
-        RaceStrategy::TtftRacing { .. } => "ttft",
-        RaceStrategy::None => return Err(()),
+    let RaceStrategy::SameModel {
+        attempts,
+        hedge_delay_ms,
+    } = strategy
+    else {
+        return Err(());
     };
-    counter!("nimproxy_race_requests_total", "strategy" => kind).increment(1);
-    match strategy {
-        RaceStrategy::FullParallel { models } => {
-            parallel(models, &mut attempt, "winner_found").await
-        }
-        RaceStrategy::TtftRacing { models } => parallel(models, &mut attempt, "ttft_winner").await,
-        RaceStrategy::Smart {
-            primary_model,
-            fallback_models,
-            primary_timeout_ms,
-        } => {
-            // Timeout drops the primary before fallback admission.
-            match tokio::time::timeout(
-                Duration::from_millis(primary_timeout_ms),
-                attempt(primary_model.clone()),
-            )
-            .await
-            {
-                Ok(Ok(value)) => {
-                    counter!("nimproxy_race_smart_primary_hit_total").increment(1);
-                    return Ok(Winner {
-                        model: primary_model,
-                        value,
-                    });
-                }
-                Err(_) => {
-                    counter!("nimproxy_race_cancelled_total", "reason" => "primary_timeout")
-                        .increment(1);
-                }
-                Ok(Err(())) => {}
+    counter!("nimproxy_race_requests_total", "strategy" => "same_model").increment(1);
+    let delay = Duration::from_millis(hedge_delay_ms);
+    let mut pending = FuturesUnordered::new();
+    let mut launched = 0;
+    let mut next_launch = tokio::time::Instant::now();
+    loop {
+        // Start immediately when no viable attempt remains. Otherwise each
+        // delayed copy joins the originals without taking away their chance.
+        if launched < attempts && (pending.is_empty() || delay.is_zero()) {
+            pending.push(attempt(launched));
+            launched += 1;
+            next_launch = tokio::time::Instant::now() + delay;
+            if delay.is_zero() && launched < attempts {
+                continue;
             }
-            counter!("nimproxy_race_smart_fallback_triggered_total").increment(1);
-            parallel(fallback_models, &mut attempt, "winner_found").await
         }
-        RaceStrategy::None => Err(()),
+        if pending.is_empty() {
+            return Err(());
+        }
+        tokio::select! {
+            // A response already ready at the launch boundary wins before
+            // another copy is started.
+            biased;
+            result = pending.next() => {
+                if let Some(Ok(value)) = result {
+                    counter!("nimproxy_race_cancelled_total", "reason" => "winner_found")
+                        .increment(pending.len() as u64);
+                    return Ok(value);
+                }
+            }
+            _ = tokio::time::sleep_until(next_launch), if launched < attempts => {
+                pending.push(attempt(launched));
+                launched += 1;
+                next_launch = tokio::time::Instant::now() + delay;
+            }
+        }
     }
 }
 
-async fn parallel<T, F, Fut>(
-    models: Vec<String>,
-    attempt: &mut F,
-    reason: &'static str,
-) -> Result<Winner<T>, ()>
-where
-    F: FnMut(String) -> Fut,
-    Fut: Future<Output = Result<T, ()>>,
-{
-    let mut pending = FuturesUnordered::new();
-    for model in models {
-        let future = attempt(model.clone());
-        pending.push(async move { (model, future.await) });
-    }
-    while let Some((model, result)) = pending.next().await {
-        if let Ok(value) = result {
-            counter!("nimproxy_race_cancelled_total", "reason" => reason)
-                .increment(pending.len() as u64);
-            return Ok(Winner { model, value });
+/// Buffered candidates must be complete assistant output, not merely HTTP 200.
+pub(crate) fn effective_completion(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    value.get("error").is_none()
+        && value
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .is_some_and(|choices| {
+                !choices.is_empty()
+                    && choices.iter().all(|choice| {
+                        choice
+                            .get("finish_reason")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|s| !s.is_empty())
+                            && choice.get("message").is_some_and(|message| {
+                                message.get("role").and_then(|v| v.as_str()) == Some("assistant")
+                                    && complete_message(message)
+                            })
+                    })
+            })
+}
+
+fn complete_message(message: &serde_json::Value) -> bool {
+    let nonempty = |value: Option<&serde_json::Value>| {
+        value
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty())
+    };
+    let function = |value: &serde_json::Value| {
+        nonempty(value.get("name"))
+            && value
+                .get("arguments")
+                .is_some_and(serde_json::Value::is_string)
+    };
+    // Text accompanying a malformed call cannot make the complete response
+    // usable. Null/absent call fields remain ordinary optional fields.
+    let has_function = match message.get("function_call").filter(|v| !v.is_null()) {
+        Some(call) if function(call) => true,
+        Some(_) => return false,
+        None => false,
+    };
+    let has_tools = match message.get("tool_calls").filter(|v| !v.is_null()) {
+        Some(value) => {
+            let Some(calls) = value.as_array() else {
+                return false;
+            };
+            if !calls.iter().all(|call| {
+                nonempty(call.get("id"))
+                    && call.get("type").and_then(|v| v.as_str()) == Some("function")
+                    && call.get("function").is_some_and(function)
+            }) {
+                return false;
+            }
+            !calls.is_empty()
         }
-    }
-    Err(())
+        None => false,
+    };
+    nonempty(message.get("content"))
+        || nonempty(message.get("reasoning_content"))
+        || nonempty(message.get("refusal"))
+        || has_function
+        || has_tools
 }
 
 /// Bounded complete-event classifier; the relay preserves the original bytes.

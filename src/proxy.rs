@@ -146,10 +146,17 @@ async fn reserve_slot(
     heartbeat: Duration,
     deadline: Instant,
     prefer: Option<usize>,
+    on_wait: impl FnMut() -> bool,
+) -> Option<Slot> {
+    await_slot(state.dispatch.acquire(deadline, prefer), heartbeat, on_wait).await
+}
+
+async fn await_slot(
+    mut rx: tokio::sync::oneshot::Receiver<Slot>,
+    heartbeat: Duration,
     mut on_wait: impl FnMut() -> bool,
 ) -> Option<Slot> {
     let queued = Instant::now();
-    let mut rx = state.dispatch.acquire(deadline, prefer);
     loop {
         tokio::select! {
             slot = &mut rx => {
@@ -573,6 +580,9 @@ pub async fn handle(
                 path_query,
                 headers,
                 request,
+                original: body,
+                prefer,
+                used_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
                 wants_stream,
             };
             return if wants_stream {
@@ -662,6 +672,9 @@ struct RaceRequest {
     path_query: String,
     headers: HeaderMap,
     request: serde_json::Value,
+    original: Bytes,
+    prefer: Option<usize>,
+    used_keys: Arc<Mutex<std::collections::HashSet<String>>>,
     wants_stream: bool,
     deadline: Instant,
 }
@@ -686,14 +699,10 @@ enum RaceBody {
 }
 
 impl RaceRequest {
-    async fn attempt(&self, model: String) -> Result<RaceReply, ()> {
-        let ctx = Ctx {
-            model: label_model(&self.state, &model),
-            ..self.ctx.clone()
-        };
-        let result = self.attempt_inner(&model, &ctx).await;
+    async fn attempt(&self, ordinal: usize) -> Result<RaceReply, ()> {
+        let result = self.attempt_inner(ordinal, &self.ctx).await;
         if result.is_err() {
-            self.observe(model, false, None, None);
+            self.observe(self.ctx.model.clone(), false, None, None);
         }
         result
     }
@@ -710,19 +719,17 @@ impl RaceRequest {
             });
     }
 
-    async fn attempt_inner(&self, model: &str, ctx: &Ctx) -> Result<RaceReply, ()> {
-        let mut request = self.request.clone();
-        request["model"] = model.into();
-        let prefer = affinity(&request, self.state.pool().len());
-        let original = Bytes::from(serde_json::to_vec(&request).map_err(|_| ())?);
+    async fn attempt_inner(&self, ordinal: usize, ctx: &Ctx) -> Result<RaceReply, ()> {
+        let prefer = if ordinal == 0 { self.prefer } else { None };
         let mut injected = self.wants_stream
-            && request.get("stream_options").is_none()
+            && self.request.get("stream_options").is_none()
             && !self.state.no_inject.lock().unwrap().contains(&ctx.model);
         let mut body = if injected {
+            let mut request = self.request.clone();
             request["stream_options"] = serde_json::json!({"include_usage": true});
             Bytes::from(serde_json::to_vec(&request).map_err(|_| ())?)
         } else {
-            original.clone()
+            self.original.clone()
         };
         loop {
             if Instant::now() >= self.deadline {
@@ -730,11 +737,11 @@ impl RaceRequest {
             }
             let permit =
                 acquire_model_permit(&self.state, &self.cfg, ctx, self.deadline, || true).await?;
-            let slot = reserve_slot(
-                &self.state,
+            let slot = await_slot(
+                self.state
+                    .dispatch
+                    .acquire_racing(self.deadline, prefer, self.used_keys.clone()),
                 self.cfg.heartbeat,
-                self.deadline,
-                prefer,
                 || true,
             )
             .await
@@ -768,7 +775,7 @@ impl RaceRequest {
                     .lock()
                     .unwrap()
                     .insert(ctx.model.clone());
-                body = original.clone();
+                body = self.original.clone();
                 injected = false;
                 continue;
             }
@@ -823,7 +830,11 @@ impl RaceRequest {
                     }
                 }
             } else {
-                RaceBody::Buffered(resp.bytes().await.map_err(|_| ())?)
+                let bytes = resp.bytes().await.map_err(|_| ())?;
+                if !crate::racing::effective_completion(&bytes) {
+                    return Err(());
+                }
+                RaceBody::Buffered(bytes)
             };
             return Ok(RaceReply {
                 ctx: ctx.clone(),
@@ -836,11 +847,8 @@ impl RaceRequest {
         }
     }
 
-    async fn select(
-        &self,
-        strategy: crate::racing::RaceStrategy,
-    ) -> Result<crate::racing::Winner<RaceReply>, ()> {
-        crate::racing::select(strategy, |model| self.attempt(model)).await
+    async fn select(&self, strategy: crate::racing::RaceStrategy) -> Result<RaceReply, ()> {
+        crate::racing::select(strategy, |ordinal| self.attempt(ordinal)).await
     }
 
     async fn buffered(
@@ -852,15 +860,17 @@ impl RaceRequest {
         let _active =
             crate::dispatch::scopeguard(|| gauge!("nimproxy_active_requests").decrement(1.0));
         let work = async {
-            let Ok(winner) = self.select(strategy).await else {
+            let Ok(reply) = self.select(strategy).await else {
                 record_request(&self.ctx, "502");
                 return (
                     StatusCode::BAD_GATEWAY,
-                    axum::Json(proxy_error_json("race_failed", "all racing models failed")),
+                    axum::Json(proxy_error_json(
+                        "race_failed",
+                        "all racing attempts failed",
+                    )),
                 )
                     .into_response();
             };
-            let reply = winner.value;
             let RaceBody::Buffered(body) = reply.body else {
                 unreachable!("buffered race")
             };
@@ -868,7 +878,7 @@ impl RaceRequest {
                 .increment(1);
             histogram!("nimproxy_upstream_seconds", "model" => reply.ctx.model.clone())
                 .record(reply.sent_at.elapsed().as_secs_f64());
-            self.observe(winner.model, true, None, None);
+            self.observe(reply.ctx.model.clone(), true, None, None);
             record_observations(&reply.ctx, &observe_buffered(&body));
             record_request(&reply.ctx, reply.status.as_str());
             Response::builder()
@@ -921,17 +931,16 @@ impl RaceRequest {
                         _ = heartbeat.tick() => { let _ = tx.try_send(Ok(Bytes::from_static(b": heartbeat\n\n"))); }
                     }
                 };
-                let Ok(winner) = winner else {
+                let Ok(reply) = winner else {
                     let _ = tx
                         .send(Ok(sse_error_with_code(
                             "race_failed",
-                            "all racing models failed",
+                            "all racing attempts failed",
                         )))
                         .await;
                     record_request(&self.ctx, "502");
                     return;
                 };
-                let reply = winner.value;
                 *selected_ctx.lock().unwrap() = reply.ctx.clone();
                 let RaceBody::Stream {
                     prefix,
@@ -999,7 +1008,7 @@ impl RaceRequest {
                     histogram!("nimproxy_tpot_seconds", "model" => reply.ctx.model.clone()).record(gen_secs / c as f64);
                     tps
                 });
-                self.observe(winner.model, success, Some(ttft), tps);
+                self.observe(reply.ctx.model.clone(), success, Some(ttft), tps);
                 histogram!("nimproxy_upstream_seconds", "model" => reply.ctx.model.clone())
                     .record(reply.sent_at.elapsed().as_secs_f64());
                 record_request(&reply.ctx, if success { "200" } else { "stream_error" });

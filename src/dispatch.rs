@@ -224,7 +224,10 @@ mod tests {
         let ordinary = d.acquire(deadline, Some(0));
         let b = d.acquire_racing(deadline, Some(0), used.clone());
         assert_eq!(a.await.expect("first race grant").key, "key0");
-        assert_eq!(ordinary.await.expect("interleaved ordinary grant").key, "key0");
+        assert_eq!(
+            ordinary.await.expect("interleaved ordinary grant").key,
+            "key0"
+        );
         assert_eq!(b.await.expect("reused race grant").key, "key0");
         assert_eq!(used.lock().unwrap().len(), 1);
         assert!(d.acquire_racing(deadline, Some(0), used).await.is_err());
@@ -243,16 +246,18 @@ mod tests {
         assert_eq!(first.key, "key0");
         {
             let mut guard = h.write().unwrap();
-            *guard = Arc::new(guard.rebuild(
-                ["key1", "key0"]
-                    .into_iter()
-                    .map(|key| crate::pool::LaneSpec {
-                        key: key.to_owned(),
-                        rpm: 3,
-                        enabled: true,
-                    })
-                    .collect(),
-            ));
+            *guard = Arc::new(
+                guard.rebuild(
+                    ["key1", "key0"]
+                        .into_iter()
+                        .map(|key| crate::pool::LaneSpec {
+                            key: key.to_owned(),
+                            rpm: 3,
+                            enabled: true,
+                        })
+                        .collect(),
+                ),
+            );
         }
         let second = d
             .acquire_racing(deadline, Some(1), used.clone())
@@ -269,7 +274,10 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         let used = Arc::new(Mutex::new(HashSet::new()));
         drop(d.acquire_racing(deadline, Some(0), used.clone()));
-        let slot = d.acquire(deadline, None).await.expect("ordinary grant after abandonment");
+        let slot = d
+            .acquire(deadline, None)
+            .await
+            .expect("ordinary grant after abandonment");
         assert_eq!(slot.key, "key0");
         assert!(used.lock().unwrap().is_empty());
         assert_eq!(h.read().unwrap().lane_stats()[0].in_window, 1);

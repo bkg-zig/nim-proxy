@@ -2296,7 +2296,35 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Race all models concurrently from the start.",
+            "description": "Race identical request copies; zero delay launches all copies immediately.",
+            "required": [
+              "attempts",
+              "hedge_delay_ms",
+              "type"
+            ],
+            "properties": {
+              "attempts": {
+                "type": "integer",
+                "maximum": 5,
+                "minimum": 1
+              },
+              "hedge_delay_ms": {
+                "type": "integer",
+                "format": "int64",
+                "maximum": 300000,
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "same_model"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Retired multi-model policy. Replace with `same_model` before enabling.",
             "required": [
               "models",
               "type"
@@ -2318,7 +2346,7 @@
           },
           {
             "type": "object",
-            "description": "Start fallbacks when the primary fails or its delay expires.",
+            "description": "Retired multi-model policy. Replace with `same_model` before enabling.",
             "required": [
               "primary_model",
               "fallback_models",
@@ -2350,7 +2378,7 @@
           },
           {
             "type": "object",
-            "description": "Race until a meaningful streamed delta; buffered requests race to completion.",
+            "description": "Retired multi-model policy. Replace with `same_model` before enabling.",
             "required": [
               "models",
               "type"
@@ -2386,7 +2414,7 @@
             }
           }
         ],
-        "description": "Every participant consumes a separately governed upstream request. Policies\nare bounded to five distinct model ids and are disabled unless persisted."
+        "description": "Every participant consumes a separately governed upstream request. Policies\nrace at most five copies of the client-selected model and are disabled\nunless persisted. Retired multi-model policies parse only for migration errors."
       },
       "RacingConfigResponse": {
         "type": "object",
