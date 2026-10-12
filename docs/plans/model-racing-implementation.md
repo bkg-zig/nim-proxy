@@ -1,8 +1,73 @@
 # Plan — Model Racing Implementation
 
-**Status:** Requirement corrected; same-model request racing is not implemented,
+**Status:** Same-model request racing implementation in progress,
 2026-10-12 (Asia/Shanghai). The earlier multi-model repair remains historical
 implementation evidence, not acceptance of the corrected requirement.
+
+## Execution contract — 2026-10-12
+
+The owner authorized implementing this corrected plan. The work item is
+`codex/same-model-hedging-fix`, based on the integration branch
+`feature/model-racing` through the unmerged repair and contract dependencies
+`c169089` and `d338974`. Main and the primary checkout remain untouched.
+
+- **Outcome:** preserve the client-selected model and request semantics in
+  every contender, choose the first effective response, and cancel all losers.
+- **Proof:** per the [test strategy](../../knowledge/testing/test-strategy.md),
+  commit reviewed failing HTTP/config regressions, then run `cargo test --test
+  racing --test racing_config`, the complete Rust suite, Clippy with warnings
+  denied, `cargo fmt --check`, generated OpenAPI/route/field-order guards,
+  agent-guide selftest/current links and `git diff --check`. Run the strict
+  enforcing mock load harness with racing enabled. All keys and traffic are
+  synthetic; no live NIM or production service mutation is required.
+- **Constraint:** each send, including retries, uses the shared model governor
+  and FIFO RPM dispatcher; sent reservations are never refunded. Disabled
+  routing, authentication, deadlines, stream ownership and machine identifiers
+  retain their contracts. No new dependencies, UI, deployment or quality ranking.
+- **Ponytail Rung:** 2/5 — reuse owned futures, serde, the existing settings
+  transaction, pool/dispatcher, bounded SSE gate and HTTP mock harness.
+- **Act:** implement and verify small red-to-green slices; obtain independent
+  review before each substantive commit and publish a reviewable work-item PR
+  against `feature/model-racing` after local verification.
+
+Scope decisions shown to the owner before implementation:
+
+1. New explicit policy: `{"type":"same_model","attempts":2,
+   "hedge_delay_ms":0}`. Attempts must be 1–5; delay must be 0–300000 ms.
+   Zero starts all attempts; a positive delay starts the first immediately and
+   each subsequent copy after the interval from the preceding launch. If all
+   launched contenders fail, launch the next immediately. Pending originals
+   remain eligible. A winner prevents any unlaunched copies from starting.
+2. First attempt retains conversation affinity; additional copies prefer
+   different currently available keys. Diversity is best effort: one-key or
+   saturated pools may reuse a ready key without blocking FIFO for diversity.
+   Key diversity does not imply independent NIM workers or measured speedup.
+3. Buffered success requires HTTP success, valid completion JSON with no error,
+   nonempty choices, assistant messages carrying content/reasoning/tool/refusal
+   output, and nonempty terminal finish reasons. Streaming keeps the existing
+   bounded first-meaningful-content/reasoning/tool-event predicate. Once winner
+   bytes are emitted, another generation is never spliced in.
+4. This intentionally retires the old multi-model policy types. Old policies
+   remain parseable for an actionable validation error, but cannot be enabled
+   through the API or loaded at startup. Operators explicitly replace or remove
+   the optional `racing` field; no store is silently migrated or rewritten.
+   Existing route names, envelopes, config version and metric names stay fixed;
+   the new strategy label is `same_model`, with cancellation `winner_found`.
+   The compatibility decision will be reflected in OpenAPI and release notes.
+
+Verification environment: Windows host has no Cargo. Use the existing isolated
+Rust verification container with a dedicated copy of this worktree and cached
+build dependencies. Container test processes use synthetic temporary stores.
+
+### Implementation proof log
+
+- Fresh baseline `cargo test --locked --offline --test racing_config --
+  --test-threads=4`: 6 passed. Key-diversity red check `cargo test --locked
+  --offline --lib racing_ -- --test-threads=4`: 7 ran, 5 failed and 2 passed.
+  Actual failures prove affinity reused `key0`, ignored key identity after
+  rebuild, and did not record granted group keys. Root independently reviewed
+  the delegate's tests/stubs before the red commit; no selection semantics
+  were implemented in those stubs.
 
 ## Current scope — same-model request racing
 

@@ -16,7 +16,7 @@
 //! upstream's window still remembers it — load-tested to cause real
 //! upstream 429s before this existed.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -235,6 +235,14 @@ impl Pool {
         Reservation::Wait(best_wait)
     }
 
+    /// Reserve for a racing request, preferring keys not yet granted to it.
+    pub fn reserve_avoiding(
+        &self,
+        prefer: Option<usize>,
+        _used_keys: &HashSet<String>,
+    ) -> Reservation {
+        self.reserve(prefer)
+    }
     /// Return a reserved slot that was never spent on an upstream request
     /// (e.g. the client hung up while queued).
     pub fn release(&self, lane: usize, stamp: Instant) {
@@ -351,6 +359,55 @@ mod tests {
         // must not panic — it just falls through to least-loaded.
         let pool = Pool::new(keys(1, 2));
         assert_eq!(take(&pool, Some(7)), 0);
+    }
+
+    #[test]
+    fn racing_reservation_prefers_unused_ready_key_over_affinity() {
+        let pool = Pool::new(keys(3, 10));
+        let used = HashSet::from(["key0".to_owned()]);
+        match pool.reserve_avoiding(Some(0), &used) {
+            Reservation::Ready { key, sticky, .. } => {
+                assert_eq!(key, "key1");
+                assert!(!sticky, "a distinct racing key is an affinity spill");
+            }
+            Reservation::Wait(_) => panic!("unused key has capacity"),
+        }
+    }
+
+    #[test]
+    fn racing_reservation_reuses_ready_key_when_unused_keys_are_busy() {
+        let pool = Pool::new(keys(2, 2));
+        let used = HashSet::from(["key0".to_owned()]);
+        pool.penalize(1, Duration::from_secs(30));
+        for _ in 0..2 {
+            match pool.reserve_avoiding(Some(0), &used) {
+                Reservation::Ready { key, sticky, .. } => {
+                    assert_eq!(key, "key0");
+                    assert!(sticky);
+                }
+                Reservation::Wait(_) => panic!("ready used key must not wait for diversity"),
+            }
+        }
+        assert!(matches!(
+            pool.reserve_avoiding(Some(0), &used),
+            Reservation::Wait(_)
+        ));
+    }
+
+    #[test]
+    fn racing_reservation_uses_key_identity_after_rebuild_reorders_lanes() {
+        let pool = Pool::new(keys(2, 3));
+        assert_eq!(take(&pool, Some(0)), 0);
+        let used = HashSet::from(["key0".to_owned()]);
+        let rebuilt = pool.rebuild(vec![spec("key1", 3, true), spec("key0", 3, true)]);
+        match rebuilt.reserve_avoiding(Some(1), &used) {
+            Reservation::Ready { key, lane, .. } => {
+                assert_eq!(key, "key1");
+                assert_eq!(lane, 0);
+            }
+            Reservation::Wait(_) => panic!("unused rebuilt key has capacity"),
+        }
+        assert_eq!(rebuilt.lane_stats()[1].in_window, 1);
     }
 
     #[test]
