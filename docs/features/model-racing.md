@@ -1,5 +1,11 @@
 # Model racing
 
+**Development status (2026-10-12):** this page describes the current multi-model
+implementation. The owner's clarified requirement is to race several attempts
+of the same client-selected model. That behavior is not implemented; see the
+[active plan](../plans/model-racing-implementation.md) for the correction and
+pending decisions.
+
 Racing is disabled by default. When enabled by an administrator, each
 `POST /v1/chat/completions` request uses the configured candidate models in
 place of the client's `model` field. Other endpoints keep their normal routing.

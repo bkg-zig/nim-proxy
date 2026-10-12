@@ -1,12 +1,30 @@
 ---
 type: Component
 title: Opt-in model racing
-description: Administrator-selected chat models share normal admission and retries; owned futures select and cancel contenders.
+description: Current multi-model implementation, reusable selection mechanisms, and the corrected same-model request-racing requirement.
 tags: [racing, routing, cancellation, streaming]
-timestamp: 2026-10-10T00:00:00Z
+timestamp: 2026-10-12T00:00:00Z
 ---
 
 # Opt-in model racing
+
+## Requirement correction
+
+On 2026-10-12 the owner clarified that racing means multiple attempts of the
+same client-selected model, returning the first effective response. The current
+implementation below instead substitutes distinct configured models and rejects
+duplicate IDs. It does not fulfill that requirement. The
+[active plan](../../docs/plans/model-racing-implementation.md) owns the pending
+launch, lane-selection, response-validity and compatibility decisions.
+
+The existing owned-future selection, cancellation, SSE gate and admission
+mechanisms can be reused. Simply allowing duplicate model IDs is insufficient:
+identical requests share an [affinity](../decisions/sticky-affinity-with-spillover.md)
+hint, and smart fallback currently cancels the primary before its alternatives
+start. A delayed hedge, if selected, must retain the original as a contender.
+Changing keys also does not remove the shared [model governor](governor.md).
+
+## Current executable behavior (multi-model)
 
 An optional config-v1 `racing` policy is validated by `config::validate`,
 persisted through `settings::commit`, and captured with every request's

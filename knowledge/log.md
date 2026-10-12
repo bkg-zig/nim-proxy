@@ -6,6 +6,17 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-12] component — distinguish same-model requirement from multi-model implementation
+
+The owner clarified that racing means concurrent request attempts for the same
+model. Source review confirmed the current implementation substitutes configured
+models, rejects duplicate IDs and cancels its primary before smart fallbacks.
+The [component page](architecture/model-racing.md) distinguishes executable
+behavior from the corrected requirement; the
+[active plan](../docs/plans/model-racing-implementation.md) records the scope
+delta, reusable mechanisms and pending acceptance work. No behavioral change or
+production latency claim accompanies this documentation correction.
+
 ## [2026-10-10] component — complete opt-in model racing repair
 
 The configured chat-racing path now uses owned contender futures and the

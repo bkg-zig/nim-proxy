@@ -1,8 +1,111 @@
 # Plan — Model Racing Implementation
 
-**Status:** Repair complete and locally verified, 2026-10-10 (Asia/Shanghai).
+**Status:** Requirement corrected; same-model request racing is not implemented,
+2026-10-12 (Asia/Shanghai). The earlier multi-model repair remains historical
+implementation evidence, not acceptance of the corrected requirement.
 
-## Current repair contract (supersedes the draft below)
+## Current scope — same-model request racing
+
+The owner clarified the intended behavior on 2026-10-12:
+“同一个模型发起多个请求，采用最先有效响应的结果”. Preserve the
+client-selected model and race request attempts for that model. Cross-model
+replacement, model tournaments and quality ranking do not satisfy this goal.
+
+Integration branch remains `feature/model-racing`. The audit work item is
+`codex/same-model-hedging-contract`, in an isolated managed worktree. It
+continues from the unmerged repair dependency `c169089`, a descendant of the
+integration branch. Both `codex/model-racing-repair` and `codex/model-hedging`
+pointed at that same commit during this audit; the latter name introduces no
+behavioral change. This documentation item does not integrate that dependency.
+
+- **Outcome:** record the corrected requirement, the implementation mismatch,
+  reusable mechanisms and pending acceptance criteria before behavioral work.
+- **Proof:** follow the [test strategy](../../knowledge/testing/test-strategy.md).
+  For this documentation edit, run `python -X utf8 scripts/check_agent_guide.py
+  --selftest`, `python -X utf8 scripts/check_agent_guide.py`, explicitly apply
+  its `local_link_problems` helper to this plan, run `git diff --check`, and
+  obtain independent review. Rerun the existing racing suites only to establish
+  the present implementation; they cannot prove the corrected requirement.
+- **Constraint:** preserve historical evidence and current executable behavior.
+  Every future attempt must keep the requested model and request semantics,
+  obey per-key RPM and the shared per-model governor, and release losers without
+  refunding already-sent requests. Existing API, store and metric contracts
+  require an explicit compatibility decision before change.
+- **Ponytail Rung:** 2/5: reuse the dispatcher, governor, owned futures, bounded
+  SSE gate, deadlines, settings transaction and local mock harness.
+- **Act:** publish this scope delta locally, validate the documentation and
+  record independent review. Behavioral implementation remains future work.
+
+### Findings from the current implementation
+
+- `RaceRequest::attempt_inner` in [proxy.rs](../../src/proxy.rs) overwrites
+  `request["model"]` with each configured candidate. Enabled racing therefore
+  does not preserve the client-selected model.
+- [racing_config.rs](../../src/racing_config.rs) requires unique model IDs;
+  [configuration tests](../../tests/racing_config.rs) explicitly reject repeated
+  IDs and a primary repeated as fallback. Repeating one model in the current
+  configuration is not a workaround.
+- `Smart` in [racing.rs](../../src/racing.rs) cancels the primary before starting
+  fallbacks. If delayed hedging is chosen, the original pending attempt must
+  remain eligible while another copy starts. The launch policy is not yet chosen.
+- Conversation affinity currently gives identical model/messages the same
+  preferred key. Removing uniqueness alone would not guarantee separate keys.
+  Lane diversity needs an explicit policy compatible with FIFO admission and
+  [affinity](../../knowledge/decisions/sticky-affinity-with-spillover.md).
+- The streamed gate already waits for meaningful content, reasoning or tool
+  data. Buffered candidates currently require HTTP success and a fully read
+  body, without validating a successful completion JSON payload. Define
+  “effective response” explicitly for both transports before implementation.
+
+### Acceptance work still required
+
+- [ ] Define attempt count, immediate versus delayed launch, and whether spare
+  attempts require distinct available keys. Do not assume separate keys mean
+  independent NIM model workers or guaranteed lower latency.
+- [ ] Keep the original model, messages, tools and sampling parameters in every
+  attempt, subject only to already-defined proxy transformations. Use attempt
+  identity rather than model identity to distinguish participants.
+- [ ] Specify the buffered success predicate and streamed first-effective-event
+  predicate, including reasoning/tool deltas and malformed/error responses.
+  After winner bytes are emitted, do not splice in a different generation.
+- [ ] Commit red regressions proving identical model/payload across attempts,
+  correct winner selection, loser cancellation, shared governor/RPM admission,
+  deadline/disconnect cleanup and disabled-path preservation; then make them
+  green with the minimum change. If delayed launch is selected, prove the
+  original can still win after the extra attempt starts.
+- [ ] Decide compatibility for the existing racing API, durable policies,
+  OpenAPI and metrics; document any intentional breaking change with regression
+  evidence and a release note. Do not silently reinterpret a multi-model store.
+- [ ] Independently review and run the relevant tests and strict mock load proof
+  from the test strategy. Live NIM speedup remains unmeasured.
+
+### Audit evidence and delivery state
+
+Fresh execution on 2026-10-12 against `c169089` in the existing isolated Rust
+verification container: `cargo test --locked --offline --test racing --test
+racing_config -- --test-threads=4` passed 23 racing tests and 6 configuration
+tests, with no failures or ignored tests in those suites. The duplicate-model
+rejection remains a passing assertion under the old contract.
+
+The primary checkout still points at `feature/model-racing` / `41d77d5`;
+the repaired code lives in `.worktrees/model-racing-repair` at `c169089`.
+Fresh `cargo check --locked --offline` in the primary checkout failed with
+8 compile errors and 4 warnings. The compiler reports type mismatches, missing
+HTTP client API support, unsupported `Instant` serialization/deserialization
+and a non-`Debug` stream. This confirms the primary checkout is not the repaired
+implementation validated by the racing suites above.
+The repair worktree was clean at audit time. The fork PR list returned no PRs.
+No deployment or production request was performed by this audit. The full Rust
+suite, Clippy, release CI and strict load test were not rerun for this
+documentation-only correction; earlier records below retain their original scope.
+
+Documentation proof passed: all 12 guide selftest fixtures demonstrated their
+named failure, the guide/current-link check passed, this plan's local links
+passed the existing helper, and `git diff --check` passed. An independent agent
+reviewed all five changed Markdown files and approved the requirement/current-
+behavior distinction and the explicitly pending implementation decisions.
+
+## Historical repair contract — 2026-10-10
 
 The owner requested repair after the handoff audit reproduced eight compile
 errors and found placeholder upstream functions, disconnected racing, ordered
