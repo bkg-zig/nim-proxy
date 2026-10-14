@@ -1,6 +1,7 @@
 # Plan — Model Racing Implementation
 
-**Status:** Delivery verification in progress, 2026-10-14 (Asia/Shanghai).
+**Status:** Local deployment complete, 2026-10-14 (Asia/Shanghai).
+Remote review and the full browser matrix remain pending as recorded below.
 The earlier multi-model repair remains historical implementation evidence,
 not acceptance of the corrected requirement.
 
@@ -39,9 +40,9 @@ must not be presented as performance or human layout approval.
 ### Delivery evidence
 
 - The owner selected two attempts with a 1000 ms hedge delay for port 8001.
-  Current config-v1 has no legacy racing field, uses installed `zh-CN`, and
-  retains keyed client authentication. Upgrade will add only the approved
-  policy and preserve all other configuration values.
+  Pre-upgrade config-v1 had no racing field, used installed `zh-CN`, and
+  retained keyed client authentication. The upgrade added only the approved
+  policy and preserved all other configuration values.
 - OpenAPI drift was freshly reproduced: 9 passed, 1 failed at
   `committed_spec_matches_the_code`. Regeneration passed all 10 OpenAPI tests;
   the generated diff adds only four named-variant property caps.
@@ -53,7 +54,10 @@ must not be presented as performance or human layout approval.
   blocking defect. Its required log ingest is now recorded. The reviewer did
   not execute tests or approve deployment/performance claims.
 - GitHub direct access failed to connect; the available local proxy returned
-  HTTP 501 for CONNECT. PR publication remains pending connectivity.
+  HTTP 501 for CONNECT. A second existing proxy on loopback port 7897 then
+  succeeded. Publish the task branch against the original `41d77d5` integration
+  baseline on the fork so the already integrated local delivery remains
+  reviewable; do not alter main.
 - Fresh full Rust proof passed 397 tests: 228 library, 119 E2E, 10 OpenAPI,
   32 racing and 8 configuration. The one normally ignored
   `release_restart_and_idle_history` check was then explicitly run and passed.
@@ -72,8 +76,57 @@ must not be presented as performance or human layout approval.
   Its first script assumed the mock emitted a model response field; that
   invalid test assumption was removed, and the rerun checked the actual
   completion and both per-key send increments. Production code was unchanged.
+- Commit `ba64078` was independently reviewed and fast-forwarded into the local
+  integration branch. The primary checkout now contains the completed source;
+  its six original untracked files and the main ref remain unchanged. Task
+  branches/worktrees and all prior regression commits are retained.
+- Production upgrade completed on port 8001 using image
+  `sha256:26cb95cbe871d76bb24aa4cd12207b301187ad45576a84417a56df0e7d54b467`.
+  All 38 source/Cargo build inputs match the committed worktree. Binary SHA256:
+  `8b9be40ff4ec953312edc375fba3ee8e92e736356587adabbca631e997b96a45`.
+  The old service exited cleanly; three data files were copied and hash-checked
+  into the restricted local rollback directory. More than 61 seconds elapsed
+  before the replacement started. The only config change is the approved
+  same-model policy (two attempts, 1000 ms). All previous values compare equal.
+- A health probe issued immediately after start raced startup and failed;
+  subsequent built-in and HTTP probes passed and Docker reports healthy.
+  `/health` returns 200; anonymous `/api/racing/config` and `/v1/models`
+  return 401. The real login page renders Chinese through the in-app browser
+  with no captured warning/error logs. This is page smoke evidence, not the
+  full interaction matrix or human visual approval.
+- Rollback retains container `nim-proxy-before-same-model-20261014`, image tag
+  `nim-proxy:before-same-model-20261014`, and the restricted directory
+  `D:/Desktop/2api/nim-proxy-work/rollback-20261014-nim-delivery`.
+  Secret-free reports, build logs and rollback instructions are in
+  `D:/Desktop/2api/nim-proxy-work/delivery-20261014`.
+- The extra browser matrix hung after Chromium exited; a serialized 240-second
+  retry also did not complete. Neither run passes. Independent review found
+  unbounded pending CDP calls after socket closure; the crash cause is unknown.
+  Owned test proxies/mock and smoke containers were stopped. See pending bug
+  below. Coverage, MSRV, security/release CI, visual-matrix human approval and
+  live NIM latency benchmarking were not run and are not claimed.
 
-## Completion and live-performance scope — 2026-10-14
+### Browser-harness issue prepared for GitHub
+
+- **Title:** Browser render gate hangs indefinitely after Chromium exits.
+- **What happened?** `CDP.send()` in `scripts/render_check.js` has neither a
+  request deadline nor rejection of outstanding calls on WebSocket close. The
+  child browser exited while Node and its test proxy remained alive with an
+  empty log; the full matrix cannot be counted as passed.
+- **Steps to reproduce:** run `node scripts/render_check.js --all-states` in
+  the verifier. Browser exit was observed during this run; a deterministic
+  forced-exit regression remains future work.
+- **Auth mode:** synthetic configured store; no production credentials used.
+- **How are you running it?** Docker, Linux Chromium, Windows host.
+- **Version or commit:** `ba64078`.
+- **Client / harness:** `scripts/render_check.js --all-states`.
+- **Relevant logs:** Chromium children became zombies while the Node driver
+  remained alive; container `oom` and `oom_kill` counters were zero. Browser
+  crash cause is not established. The bounded rerun terminated without success.
+- **Before submitting:** duplicate search before publication; no credentials
+  or production request contents are included.
+
+## Historical completion and live-performance scope — 2026-10-14
 
 The owner requested immediate completion with parallel subagents and real speed
 measurements. Continue the existing isolated `codex/same-model-hedging-fix`
@@ -108,7 +161,8 @@ part of this invocation.
 
 ### Completion evidence
 
-Pending fresh execution. Earlier proof records below remain historical.
+This invocation ended before fresh execution. The delivery closure above
+supersedes its work state; live-speed measurement remains unperformed.
 
 ## Execution contract — 2026-10-12
 
@@ -265,7 +319,7 @@ behavioral change. This documentation item does not integrate that dependency.
   body, without validating a successful completion JSON payload. Define
   “effective response” explicitly for both transports before implementation.
 
-### Acceptance work still required
+### Acceptance work identified at audit time (historical)
 
 - [ ] Define attempt count, immediate versus delayed launch, and whether spare
   attempts require distinct available keys. Do not assume separate keys mean
