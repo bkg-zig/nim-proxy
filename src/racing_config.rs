@@ -10,6 +10,9 @@ use utoipa::ToSchema;
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RaceStrategy {
     /// Race identical request copies; zero delay launches all copies immediately.
+    // All named-variant fields are required. Matching property caps express
+    // deny_unknown_fields in utoipa's internally tagged enum schemas.
+    #[schema(max_properties = 3)]
     SameModel {
         #[schema(minimum = 1, maximum = 5)]
         attempts: usize,
@@ -17,14 +20,17 @@ pub enum RaceStrategy {
         hedge_delay_ms: u64,
     },
     /// Retired multi-model policy. Replace with `same_model` before enabling.
+    #[schema(max_properties = 2)]
     FullParallel { models: Vec<String> },
     /// Retired multi-model policy. Replace with `same_model` before enabling.
+    #[schema(max_properties = 4)]
     Smart {
         primary_model: String,
         fallback_models: Vec<String>,
         primary_timeout_ms: u64,
     },
     /// Retired multi-model policy. Replace with `same_model` before enabling.
+    #[schema(max_properties = 2)]
     TtftRacing { models: Vec<String> },
     /// No racing. An enabled durable policy may not use this variant.
     #[default]

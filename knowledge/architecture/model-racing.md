@@ -1,63 +1,55 @@
 ---
 type: Component
-title: Opt-in model racing
-description: Current multi-model implementation, reusable selection mechanisms, and the corrected same-model request-racing requirement.
+title: Opt-in same-model request racing
+description: Identical request copies with governed admission, delayed hedges, key diversity, effective-response selection and cancellation.
 tags: [racing, routing, cancellation, streaming]
 timestamp: 2026-10-12T00:00:00Z
 ---
 
-# Opt-in model racing
+# Opt-in same-model request racing
 
-## Requirement correction
+The [decision](../decisions/same-model-request-racing.md) supersedes the old
+multi-model interpretation. An optional config-v1 `racing` policy is validated
+at startup and settings writes, persisted through `settings::commit`, and
+captured in each request's immutable snapshot. Absence disables it; enabled
+racing conflicts with strict passthrough. Management APIs remain admin-only.
+Legacy policies fail validation instead of being silently reinterpreted.
 
-On 2026-10-12 the owner clarified that racing means multiple attempts of the
-same client-selected model, returning the first effective response. The current
-implementation below instead substitutes distinct configured models and rejects
-duplicate IDs. It does not fulfill that requirement. The
-[active plan](../../docs/plans/model-racing-implementation.md) owns the pending
-launch, lane-selection, response-validity and compatibility decisions.
+`proxy::RaceRequest` owns the original body and candidate I/O. Attempt identity
+is an ordinal, never a replacement model. The original body passes through,
+subject only to normal usage injection and its rejection fallback.
+`racing::select` uses owned futures: immediate copies launch together; delayed
+copies join pending originals. Failure of all current contenders accelerates
+the next launch. A winner drops pending contenders and prevents future launches.
 
-The existing owned-future selection, cancellation, SSE gate and admission
-mechanisms can be reused. Simply allowing duplicate model IDs is insufficient:
-identical requests share an [affinity](../decisions/sticky-affinity-with-spillover.md)
-hint, and smart fallback currently cancels the primary before its alternatives
-start. A delayed hedge, if selected, must retain the original as a contender.
-Changing keys also does not remove the shared [model governor](governor.md).
+Each send takes a shared [model permit](governor.md) and a
+[FIFO dispatcher](dispatcher.md) grant. Racing waiters share a request-local
+set of granted key identities. The dispatcher chooses an unused ready key when
+possible and records the key before granting another waiter. If all unused keys are busy it uses
+ready existing capacity. The [pool](key-pool.md) retains its normal rolling
+window, cooldown, pacing and rebuild semantics. Original affinity is preserved
+for the first copy. Key diversity does not bypass the shared model limit.
 
-## Current executable behavior (multi-model)
+Buffered selection requires successful HTTP and a complete valid JSON
+completion with nonempty choices, terminal finish reasons and meaningful
+assistant output, including complete callable tool/function data. Streamed
+selection retains the bounded SSE gate for complete
+content, reasoning or tool deltas. Comments and empty deltas cannot win. The
+winner's bytes are relayed unchanged; a later error never triggers splicing
+in another generation. The winner retains its permit throughout stream relay.
 
-An optional config-v1 `racing` policy is validated by `config::validate`,
-persisted through `settings::commit`, and captured with every request's
-immutable `Config` snapshot. Absence disables it. All racing APIs require an
-admin/superuser; enabling it conflicts with strict passthrough. This is an
-intentional routing change: chat POSTs replace the requested model with up to
-five explicitly configured models. See the [operator guide](../../docs/features/model-racing.md).
+The single streaming task owns in-flight accounting, observation finalization,
+and disconnect/[absolute deadline](../decisions/explicit-request-deadline.md)
+cancellation. Buffered deadlines bound otherwise-unobservable disconnect work.
+Losers release HTTP/model ownership without refunding already-sent RPM.
 
-`proxy::RaceRequest` owns candidate I/O. `racing::select` owns only selection:
-`FuturesUnordered` takes the first successful completion, and dropping the
-collection cancels losers instead of detaching tasks. Smart selection times
-out and drops the primary before creating fallback candidates. Each candidate
-uses the [governor](governor.md), [dispatcher](dispatcher.md), and
-[key pool](key-pool.md); retries and usage-injection fallback consume new RPM
-slots. Already-sent slots cannot be returned after a race is cancelled.
+Observations record definitive failures and completed winners, excluding
+cancelled work. The SSE classifier follows the winner so errors and incomplete
+EOF cannot become successful samples. Buffered latency is not TTFT; missing
+measurements are excluded from rankings. Statistics are process-local, bounded
+and biased toward winners. No live latency improvement is established.
 
-Buffered selection waits for a successful full body. Streamed selection waits
-for a meaningful complete SSE event while withholding candidate bytes; only
-the winning prefix and stream are released to the client. Comments and empty
-deltas are not TTFT. Prefix memory is bounded. The single streaming task owns
-the client in-flight guard, winning permit and observation finalizer, and
-races disconnect and the [absolute deadline](../decisions/explicit-request-deadline.md).
-
-Statistics record definitive candidate failures and completed winners, never
-count cancelled work as failed models or buffered latency as TTFT. The bounded
-SSE classifier remains with the selected winner through relay, so later error
-events and incomplete EOF cannot become successful samples. Raw relay bytes
-remain unchanged, including a post-selection provider error.
-Missing measurements are excluded from rankings; non-finite TPS cannot poison
-the moving average. Model statistics are bounded and process-local, and winner
-sampling is not a controlled performance comparison.
-
-`tests/racing.rs`, `tests/racing_config.rs`, performance/client unit tests,
-route inventory and generated OpenAPI provide regression evidence. The
-[repair plan](../../docs/plans/model-racing-implementation.md) records fresh
-test results and scope; no live NIM latency percentage is established.
+See the [operator guide](../../docs/features/model-racing.md) for schemas,
+migration and metrics; [test strategy](../testing/test-strategy.md) and
+[active plan](../../docs/plans/model-racing-implementation.md) for proof and
+delivery state.

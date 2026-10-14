@@ -6,6 +6,19 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-14] decision — deliver governed same-model request racing
+
+The [same-model decision](decisions/same-model-request-racing.md) now has an
+implementation that preserves the client-selected model and request bytes,
+keeps pending originals eligible after delayed launches, and chooses effective
+buffered or streaming output. Every send shares governor and RPM admission;
+sent losers retain their rate cost. Legacy multi-model policies are explicitly
+rejected. The [component](architecture/model-racing.md) and
+[operator guide](../docs/features/model-racing.md) describe the behavior and
+compatibility boundary. Independent source review found no blocking defect;
+the [delivery plan](../docs/plans/model-racing-implementation.md) records fresh
+verification and deployment state. No live performance gain is inferred.
+
 ## [2026-10-12] component — distinguish same-model requirement from multi-model implementation
 
 The owner clarified that racing means concurrent request attempts for the same

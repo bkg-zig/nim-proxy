@@ -25,14 +25,17 @@ Use the proof that exercises the changed surface, and preserve the limits of
 that proof.
 
 - **Rust logic:** `cargo test` and `cargo clippy --all-targets -- -D warnings`.
-- **Model racing:** `cargo test --test racing` exercises real-proxy selection,
+- **Model racing:** `cargo test --test racing` exercises same-model request-byte
+  preservation, immediate/delayed selection, complete buffered tool validation,
   cancellation, deadlines, stream framing and shared admission against local
   mock upstreams. `cargo test --test racing_config` proves pre-setup/session/admin
   gates, authorization before body parsing, typed rejections, bounded policy
   validation, durable restart, failed-save rollback, startup refusal, and
   strict-passthrough exclusion through both general limits writers. Run the
   route inventory, generated OpenAPI and field-order guards below with these
-  tests. Mock timing proves ordering and ownership, not a production speedup.
+  tests. The OpenAPI suite also rejects schemas that allow extra/mixed fields
+  for the closed named racing policies. Mock timing proves ordering and
+  ownership, not a production speedup.
 - **Canonical history-v1 codec:** `cargo test history::codec::tests --lib`
   exercises sanitized golden boot/sample/checkpoint bytes, canonical encode
   ordering, reordered-object decoding, and every declared negative diagnostic:

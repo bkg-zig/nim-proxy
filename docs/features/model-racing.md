@@ -1,111 +1,108 @@
-# Model racing
+# Same-model request racing
 
-**Development status (2026-10-12):** this page describes the current multi-model
-implementation. The owner's clarified requirement is to race several attempts
-of the same client-selected model. That behavior is not implemented; see the
-[active plan](../plans/model-racing-implementation.md) for the correction and
-pending decisions.
-
-Racing is disabled by default. When enabled by an administrator, each
-`POST /v1/chat/completions` request uses the configured candidate models in
-place of the client's `model` field. Other endpoints keep their normal routing.
-Choose models that support the same request features and acceptable answer
-quality. Racing chooses by response time; it does not compare answer quality.
+Racing is disabled by default. When an administrator enables it, each
+`POST /v1/chat/completions` races several copies of the client's request using
+exactly the requested model. Messages, tools and sampling parameters are
+preserved. Other endpoints keep their normal routing.
 
 ## Configure
 
-Use an authenticated admin or superuser session for all four operations:
+All four operations require an authenticated admin or superuser session:
 
 | Operation | Purpose |
 |---|---|
 | `GET /api/racing/config` | Read `{enabled, strategy}` |
 | `POST /api/racing/config` | Validate, persist and publish a policy |
 | `GET /api/racing/stats` | Read observed model statistics |
-| `GET /api/racing/ranked` | Read models with enough measured TTFT samples |
+| `GET /api/racing/ranked` | Read models with measured TTFT samples |
 
-For example, send this JSON to `POST /api/racing/config`:
+For two immediate copies, send this JSON to `POST /api/racing/config`:
 
 ```json
 {
   "enabled": true,
   "strategy": {
-    "type": "smart",
-    "primary_model": "publisher/primary-model",
-    "fallback_models": ["publisher/fallback-model"],
-    "primary_timeout_ms": 1500
+    "type": "same_model",
+    "attempts": 2,
+    "hedge_delay_ms": 0
   }
 }
 ```
 
-The example identifiers are placeholders; use models available at your
-configured upstream. To disable, send `{"enabled":false}`. A successful save
-returns `{"ok":true}` and survives restart. Invalid policies and unauthorized
-writes do not change either the active policy or `config.json`.
+`attempts` is 1–5. `hedge_delay_ms` is 0–300000: zero launches all copies;
+a positive value launches the first immediately and the next copy after that
+interval from the preceding launch. If all launched copies fail, the next
+starts immediately. The original remains eligible to win after another copy
+starts. A winner prevents any remaining copies from launching. Admission can
+still serialize sends when RPM capacity or model permits are unavailable.
 
-Policies allow one to five unique model IDs in total. IDs contain 1–128 ASCII
-letters, digits, `.`, `_`, `-` or `/`. A smart timeout is 1–300000 ms. Racing and
-`strict_passthrough` are mutually exclusive; both racing and general settings
-writes enforce this. No Dashboard controls or per-request override headers are
-provided by this implementation. See the generated [OpenAPI](../../openapi.json)
-for the exact request and response schemas.
+To disable, send `{"enabled":false}`. Saves return `{"ok":true}` and survive
+restart. Rejections preserve runtime and durable settings. Racing conflicts
+with `strict_passthrough`; both settings writers enforce this. There are no
+Dashboard controls or per-request override headers. See [OpenAPI](../../openapi.json).
 
-## Selection and cancellation
+### Replacing an old policy
 
-| Strategy | Behavior |
-|---|---|
-| `full_parallel` with `models` | Start all candidates; choose the first successful response |
-| `smart` | Try the primary; on failure or timeout, cancel it and race fallbacks |
-| `ttft_racing` with `models` | Start all candidates; streamed requests choose the first meaningful delta |
+The unreleased `full_parallel`, `smart` and `ttft_racing` policies selected
+other models and have been retired. Enabling them is rejected with a migration message.
+A store containing one refuses startup without rewriting the file. Before
+upgrading, disable racing using the old build, or stop the proxy and back up
+`DATA_DIR/config.json`, then replace its optional `racing` object with the
+`same_model` inner strategy object above (include neither the `enabled` nor the
+`strategy` wrapper). Removing
+`racing` disables it. Never map a model list to an attempt count automatically.
+Unknown fields and mixed old/new policy fields are rejected.
 
-Buffered requests race until the full successful HTTP response body has been
-read. All streaming strategies select on the first complete SSE event carrying
-nonempty content, reasoning content, or tool/function-call data. Comments,
-role-only/empty deltas and errors before the first meaningful event cannot win. The winner's buffered
-prefix and subsequent stream bytes are relayed unchanged. Pre-token prefixes
-are bounded to 64 KiB through the winning event; later bytes in the same read
-do not count against that prefix bound. LF, CRLF and CR framing are accepted.
-A candidate ending before any meaningful delta fails.
-If every candidate fails, buffered requests receive HTTP 502 `race_failed`;
-streams receive the same code in a terminal SSE error after HTTP 200.
+## Effective responses and cancellation
 
-Every attempt goes through the existing model governor and per-key FIFO RPM
-dispatcher, including retries and usage-injection fallback. A sent request
-uses its RPM slot even if cancelled. Racing therefore increases request
-consumption, and capacity limits can serialize candidate admission. Losing
-HTTP futures and permits are dropped when a winner is selected. Smart mode
-starts its timeout before primary admission, so a busy queue may trigger its
-fallback. Each request uses one immutable configuration snapshot.
+Buffered requests select the first fully read successful HTTP response whose
+JSON contains no top-level error and has nonempty completion choices. Every
+choice must have a nonempty finish reason and an assistant message containing
+content, reasoning, complete tool/function-call or refusal output. Buffered
+function calls require a function name and argument string; tool calls also
+require a call ID and function type. Empty, malformed,
+error and unfinished payloads cannot win. The winning bytes are relayed intact.
 
-`X-Nim-Proxy-Deadline-Ms` bounds admission, selection and the complete winning
-response. Streaming disconnection cancels selection or relay immediately.
-Buffered callers should use the deadline header when they need a wall-clock
-bound; immediate buffered disconnect detection remains a transport limitation.
-The winner continues to use the existing buffered request timeout or stream
-idle timeout.
+Streaming selection waits for a complete SSE event carrying nonempty content,
+reasoning content or tool/function-call data. Comments, role-only/empty deltas
+and errors before any meaningful event cannot win. Prefixes are bounded to
+64 KiB through the winning event; later bytes in that read do not count toward
+the prefix limit. LF, CRLF and CR framing are supported. The winning prefix
+and subsequent stream are relayed intact, without switching generations after
+selection. Later errors and incomplete endings remain failed observations.
+If every copy fails, buffered requests receive HTTP 502 `race_failed`; streams
+receive that code in a terminal SSE error after HTTP 200.
+
+Each send, including retries and usage-injection fallback, goes through the
+shared model governor and FIFO per-key RPM dispatcher. The first copy retains
+conversation affinity. Subsequent copies prefer unused ready keys within this
+race; if none are ready they reuse available keys, including a single-key pool.
+Key identities survive lane reorder during settings changes. Distinct keys do
+not imply independent NIM workers. Losing HTTP futures and permits are dropped;
+already-sent requests keep their RPM cost.
+
+`X-Nim-Proxy-Deadline-Ms` bounds admission, selection and complete winner relay.
+Streaming disconnect cancels work immediately. Buffered clients should provide
+a deadline for a wall-clock bound; detecting their disconnect before a response
+is available remains a transport limitation. Normal request/stream-idle timeouts
+and usage injection with one-shot rejection fallback still apply.
 
 ## Observations and limits
 
-Wins and meaningful-delta TTFT are exposed via
-`nimproxy_race_model_wins_total` and `nimproxy_race_ttft_seconds`.
-`nimproxy_race_requests_total` uses strategy labels `full_parallel`, `smart`,
-and `ttft`. `nimproxy_race_cancelled_total` counts pending contenders dropped
-at winner selection or primary timeout; it is not a count of upstream billing
-refunds. Winner cancellation preserves `winner_found` for parallel/smart and
-`ttft_winner` for TTFT; primary timeout uses `primary_timeout`.
-Smart hit/fallback counters explain policy decisions.
+Metric names remain unchanged. Requests use
+`nimproxy_race_requests_total{strategy="same_model"}`; pending launched losers
+use `nimproxy_race_cancelled_total{reason="winner_found"}`. Unlaunched copies
+are not cancellations. Wins and TTFT use `nimproxy_race_model_wins_total` and
+`nimproxy_race_ttft_seconds`, labelled with the client's model. Retired strategy
+labels and smart-primary counters stop receiving new samples; history is not
+rewritten.
 
-Performance statistics are bounded to 256 model identities and reset on
-restart. Completed winners and definitively failed candidates contribute;
-cancelled work is excluded rather than treated as a failed model response.
-An already-selected stream still relays later upstream errors verbatim, but
-errors and incomplete EOF do not produce successful observations. A successful
-stream sample requires complete framing plus `[DONE]` or a terminal finish
-event. Buffered completions do not produce
-TTFT samples. Rankings require three successful measured TTFT samples and the
-fastest-model recommendation requires five. These observations are biased
-toward race winners and do not measure every candidate's full latency or
-provide a controlled model benchmark.
+Statistics are bounded to 256 model identities and reset on restart. Completed
+winners and definitive failures contribute; cancelled work is excluded.
+Buffered latency is not TTFT. Rankings require three measured successful TTFT
+samples. Winner observations are biased samples,
+not a controlled benchmark. No production speedup is claimed.
 
-No measured production speedup is claimed. Local mock regressions establish
-selection, cancellation, permissions and rate-budget behavior; they do not
-establish a percentage latency improvement on NVIDIA's hosted service.
+See the [compatibility decision](../../knowledge/decisions/same-model-request-racing.md)
+and [implementation plan](../plans/model-racing-implementation.md) for rationale
+and verification records.

@@ -1,8 +1,114 @@
 # Plan — Model Racing Implementation
 
-**Status:** Same-model request racing implementation in progress,
-2026-10-12 (Asia/Shanghai). The earlier multi-model repair remains historical
-implementation evidence, not acceptance of the corrected requirement.
+**Status:** Delivery verification in progress, 2026-10-14 (Asia/Shanghai).
+The earlier multi-model repair remains historical implementation evidence,
+not acceptance of the corrected requirement.
+
+## Delivery closure — 2026-10-14
+
+The owner requested completion and explicitly selected upgrading the existing
+loopback service on port 8001 after acceptance. This supersedes the previous
+invocation's no-commit/no-deployment boundary. Integration remains
+`feature/model-racing`; isolated work item `codex/nim-delivery` continues from
+`7f3c259`, with all 15 inherited modified/untracked files copied intact from
+the earlier worktree. That worktree and the original untracked reports remain
+untouched. Main remains unchanged.
+
+- **Outcome:** deliver reviewed, tested same-model racing, a local Docker image,
+  and a verified upgrade of the existing service with rollback evidence.
+- **Proof:** reproduce OpenAPI drift, regenerate it, run full Rust tests,
+  Clippy, formatting, locale/source/link guards, strict synthetic load, and
+  container health/auth/configuration smoke checks per the test strategy.
+  Preserve secret-free logs and image/source identifiers.
+- **Constraint:** no live benchmark is required for correctness acceptance and
+  no speedup is claimed. Preserve credentials and operator configuration; do
+  not silently enable racing or migrate legacy policies. Before upgrade inspect
+  policy compatibility without printing secrets, stop gracefully, back up data,
+  and wait out the 61-second rate window before starting the replacement.
+  Retain the old container and image for rollback. Do not publish a release.
+- **Ponytail Rung:** 2/4/5 — reuse the test container/cache, strict mock harness,
+  native Docker lifecycle, and existing image build recipe.
+- **Act:** close schema/doc gaps, independently review, verify and commit the
+  work item, prepare the image, then perform the authorized local upgrade.
+
+Scope delta surfaced before implementation: current delivery includes source
+integration and the authorized port-8001 upgrade. Historic live-speed research
+and localization visual acceptance remain separate; current correctness tests
+must not be presented as performance or human layout approval.
+
+### Delivery evidence
+
+- The owner selected two attempts with a 1000 ms hedge delay for port 8001.
+  Current config-v1 has no legacy racing field, uses installed `zh-CN`, and
+  retains keyed client authentication. Upgrade will add only the approved
+  policy and preserve all other configuration values.
+- OpenAPI drift was freshly reproduced: 9 passed, 1 failed at
+  `committed_spec_matches_the_code`. Regeneration passed all 10 OpenAPI tests;
+  the generated diff adds only four named-variant property caps.
+- Guide selftest (12 controls), current links, locale selftest (26 cases),
+  both production catalogs, i18n selftest (121 cases), 452 referenced ids,
+  pseudolocale generation, script syntax and local asset guards passed.
+- Independent agent `delivery_review` reviewed the same-model data plane,
+  configuration, admission, schema fix and regression assertions and found no
+  blocking defect. Its required log ingest is now recorded. The reviewer did
+  not execute tests or approve deployment/performance claims.
+- GitHub direct access failed to connect; the available local proxy returned
+  HTTP 501 for CONNECT. PR publication remains pending connectivity.
+- Fresh full Rust proof passed 397 tests: 228 library, 119 E2E, 10 OpenAPI,
+  32 racing and 8 configuration. The one normally ignored
+  `release_restart_and_idle_history` check was then explicitly run and passed.
+  Clippy with warnings denied and `cargo fmt --check` passed.
+- Strict synthetic load passed 100 clients x 3 requests: 300 completions,
+  596 upstream sends (198/199/199 across three 40-RPM keys), zero client
+  failures, zero worker exhaustion and zero upstream rate violations.
+  The wrapper observed exactly 300 same-model races and reaped its children.
+  This is optimized test-profile rate-safety evidence, not latency evidence.
+- Release compilation passed offline with the cached Rust 1.97.1 musl
+  toolchain. The standard Dockerfile's offline build lacked registry cache;
+  its runtime stage was reused verbatim apart from local COPY inputs to
+  package that release binary as `nim-proxy:same-model-20261014`.
+  Image smoke proved health, pre-setup closure, admin configuration and a
+  successful two-attempt/1000 ms buffered race with zero mock rate violations.
+  Its first script assumed the mock emitted a model response field; that
+  invalid test assumption was removed, and the rerun checked the actual
+  completion and both per-key send increments. Production code was unchanged.
+
+## Completion and live-performance scope — 2026-10-14
+
+The owner requested immediate completion with parallel subagents and real speed
+measurements. Continue the existing isolated `codex/same-model-hedging-fix`
+work item; preserve inherited edits, the primary checkout, main, and the running
+production service. No commit, push, PR publication or production deployment is
+part of this invocation.
+
+- **Outcome:** close the OpenAPI regression, independently review the completed
+  same-model implementation, and measure actual same-model latency versus racing
+  disabled without presenting historical estimates as observed improvements.
+- **Proof:** reproduce the generated-schema mismatch without update mode, then
+  regenerate and run the OpenAPI, racing and configuration suites, the full Rust
+  suite, Clippy, format and repository guards per the test strategy. Run the
+  strict synthetic load proof. Validate the benchmark parser with positive and
+  negative controls, then retain secret-free per-request timings and summaries.
+- **Constraint:** use one isolated test proxy and its shared rate state for all
+  live arms; credentials may only be consumed privately from an existing
+  dedicated benchmark source. Do not inspect the production data directory.
+  Use synthetic prompts, fixed model/body parameters, interleaved arm order,
+  per-request deadlines and a bounded experiment (at most 240 upstream sends,
+  at most two concurrent upstream attempts). Stop on rate-limit or credential
+  errors; do not disable safety gates or substitute another model inside a race.
+  Report first effective output, first visible content and completion latency
+  separately, together with errors and upstream request consumption.
+- **Ponytail Rung:** 2/3/5 — reuse the existing Rust verification container,
+  cached dependencies, mock/load harness, settings API and Python standard
+  library; add only the bounded measurement proof missing from the repository.
+- **Act:** parallelize schema closure, benchmark preparation and independent
+  review; serialize builds and live measurements to avoid resource interference.
+  Test baseline, two immediate copies and two delayed copies on selected live
+  models using one release binary. No measured benefit is promised in advance.
+
+### Completion evidence
+
+Pending fresh execution. Earlier proof records below remain historical.
 
 ## Execution contract — 2026-10-12
 

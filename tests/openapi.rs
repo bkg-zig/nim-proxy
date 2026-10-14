@@ -261,15 +261,19 @@ fn racing_policy_schema_rejects_extra_or_mixed_fields() {
         ("smart", 4),
         ("ttft_racing", 2),
     ] {
-        let variant = variants.iter().find(|v| {
-            v["properties"]["type"]["enum"] == serde_json::json!([kind])
-        }).expect("named racing policy variant");
+        let variant = variants
+            .iter()
+            .find(|v| v["properties"]["type"]["enum"] == serde_json::json!([kind]))
+            .expect("named racing policy variant");
         assert_eq!(variant["required"].as_array().unwrap().len(), fields);
         assert_eq!(variant["properties"].as_object().unwrap().len(), fields);
         // All allowed fields are required: this cap permits the complete
         // policy while rejecting any additional or legacy/new mixed field.
-        assert_eq!(variant["maxProperties"], serde_json::json!(fields),
-            "racing-openapi: {kind} must reject extra fields like its typed API");
+        assert_eq!(
+            variant["maxProperties"],
+            serde_json::json!(fields),
+            "racing-openapi: {kind} must reject extra fields like its typed API"
+        );
     }
 }
 

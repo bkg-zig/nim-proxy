@@ -90,7 +90,7 @@ not a second copy here.
 | `GET /setup` | First operator | Public | Pre-setup | None | None | HTML | Post-setup bare 404 | None | Setup wizard | No | B, M |
 | `POST /setup` | First operator | Public | Pre-setup | None; shared pre-auth throttle; first complete claim wins | JSON or form URL encoded | JSON + session cookie, or native redirect + session cookie | `weak_password`, `invalid_config`, `setup_complete`, `throttled` | Success creates config bytes and sets a session cookie; throttled requests stop before PBKDF2 and leave config unchanged | Setup wizard finish | Yes, explicit no security | B, M |
 | `POST /setup/validate-key` | First operator | Public | Pre-setup | None; pre-auth throttle | JSON | JSON | `invalid_base_url`, `throttled`, `setup_complete` | Success makes one upstream call; config unchanged | Setup wizard key step | Yes, explicit no security | B, M |
-| `ANY /v1/{*path}` (`POST /v1/chat/completions` probe) | OpenAI-compatible client | Client boundary: keyed private or explicitly open trusted-network mode | Post-setup | Client bearer in keyed mode; none in open mode | Upstream-owned bytes | Upstream content type or locally framed SSE | `setup_required`, `unauthorized`, `invalid_deadline`, `overloaded`, transport codes; `race_failed` for enabled chat races | Upstream calls; enabled racing fans chat POSTs out to the configured candidates; config unchanged | External agent harness | No: upstream owns schema | B, C, M, `tests/racing.rs` |
+| `ANY /v1/{*path}` (`POST /v1/chat/completions` probe) | OpenAI-compatible client | Client boundary: keyed private or explicitly open trusted-network mode | Post-setup | Client bearer in keyed mode; none in open mode | Upstream-owned bytes | Upstream content type or locally framed SSE | `setup_required`, `unauthorized`, `invalid_deadline`, `overloaded`, transport codes; `race_failed` for enabled chat races | Upstream calls; enabled racing sends the configured number of copies preserving the client's model; config unchanged | External agent harness | No: upstream owns schema | B, C, M, `tests/racing.rs` |
 
 ## Boundary ownership
 
@@ -115,7 +115,9 @@ is `shared_observability_is_identical_across_roles_while_config_stays_scoped`.
 
 Racing policies are optional durable settings, disabled when absent. Their
 shared validator rejects a policy combined with `strict_passthrough`, including
-when either general limits writer is used and at startup. See
+when either general limits writer is used and at startup. Enabling a legacy
+multi-model policy is rejected, and a store containing one refuses startup
+without rewriting bytes. See
 [model racing](model-racing.md) for selection, cancellation and observation
 boundaries; the four racing operations have no Dashboard caller.
 
