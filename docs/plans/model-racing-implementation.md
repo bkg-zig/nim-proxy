@@ -58,6 +58,10 @@ must not be presented as performance or human layout approval.
   succeeded. Publish the task branch against the original `41d77d5` integration
   baseline on the fork so the already integrated local delivery remains
   reviewable; do not alter main.
+- Published [draft PR #1](https://github.com/ytzzjx/nim-proxy/pull/1) from
+  `codex/nim-delivery` to the fork's `feature/model-racing` baseline. It is
+  attached to this delivery chat. The fork has issues disabled, so the browser
+  bug-form record below remains pending; no upstream issue was filed.
 - Fresh full Rust proof passed 397 tests: 228 library, 119 E2E, 10 OpenAPI,
   32 racing and 8 configuration. The one normally ignored
   `release_restart_and_idle_history` check was then explicitly run and passed.
@@ -106,7 +110,7 @@ must not be presented as performance or human layout approval.
   below. Coverage, MSRV, security/release CI, visual-matrix human approval and
   live NIM latency benchmarking were not run and are not claimed.
 
-### Browser-harness issue prepared for GitHub
+### Pending browser-harness issue (fork issues disabled)
 
 - **Title:** Browser render gate hangs indefinitely after Chromium exits.
 - **What happened?** `CDP.send()` in `scripts/render_check.js` has neither a
@@ -123,7 +127,8 @@ must not be presented as performance or human layout approval.
 - **Relevant logs:** Chromium children became zombies while the Node driver
   remained alive; container `oom` and `oom_kill` counters were zero. Browser
   crash cause is not established. The bounded rerun terminated without success.
-- **Before submitting:** duplicate search before publication; no credentials
+- **Before submitting:** duplicate search could not run because fork issues
+  are disabled; no credentials
   or production request contents are included.
 
 ## Historical completion and live-performance scope — 2026-10-14
