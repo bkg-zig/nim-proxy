@@ -6,6 +6,17 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-15] runbook — separate new-api ordinary and racing channels
+
+The [new-api runbook](ops/new-api-integration.md) records the verified two-group
+deployment and private active-key ownership comparison. It incorporates
+independent-review corrections for test-config publication, absolute client
+deadlines, finite-response EOF, and real group routing. The
+[key-pool](architecture/key-pool.md) and [Docker](ops/deploy-docker.md) pages
+now explain that a restart requires a drained 61-second window handoff;
+retrying 429s is not prevention. The [plan](../docs/plans/model-racing-implementation.md)
+owns local key counts, route evidence and the new fork publication state.
+
 ## [2026-10-14] decision — deliver governed same-model request racing
 
 The [same-model decision](decisions/same-model-request-racing.md) now has an
