@@ -143,6 +143,14 @@ EOF bug on Python 3.12 and verified the correction.
   its sibling `-private` directory contains restricted recovery data.
   Browser matrix, release CI and human layout acceptance remain outside this
   operational closure. No measured latency gain is claimed.
+- Published [draft PR #1](https://github.com/taozheyin-dev/nim-proxy/pull/1)
+  from `codex/new-api-integration` to the new fork's `feature/model-racing`
+  baseline (`41d77d5`). The PR is attached to this continuation chat. The
+  original upstream and main refs were not pushed. GitHub Actions currently
+  lists no registered workflows or runs on the new fork despite the workflow
+  files being present; attempts to enable CI and CodeQL by filename returned
+  404. Remote CI success is not claimed. Local operational/review evidence is
+  complete, while the draft retains those remote acceptance limits.
 
 ### Pending verification-isolation investigation
 
