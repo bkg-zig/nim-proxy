@@ -313,10 +313,11 @@ body.on-settings .tright, body.on-settings #custom { display: none; }
   #ranges { max-width: 100%; flex-wrap: wrap; }
 
   #side { width: 58px; padding: 20px 8px; }
-  #side .wordmark, #side nav .label, .foot span:not(.dot), .foot #uptime, .foot #verinfo, .live #liveText { display: none; }
+  #side .wordmark, #side nav .label, .foot span:not(.dot):not(.locale-label), .foot #uptime, .foot #verinfo, .live #liveText { display: none; }
   #side nav button { justify-content: center; padding: 9px 0; }
   #side nav button .nbar { display: none; }
   .brand { justify-content: center; padding: 2px 0 22px; }
+  #side .locale-switch { align-self: center; padding: 2px 3px; font-size: 10px; }
   .main { padding: 18px 14px 40px; }
   .krow { flex-wrap: wrap; gap: 8px; }
   .krow > div:first-child { flex: 1 1 100%; }
@@ -336,3 +337,7 @@ body.on-settings .tright, body.on-settings #custom { display: none; }
   .main { padding: 14px 10px 32px; }
   .card { padding: 14px 12px; }
 }
+.locale-switch { align-self: flex-start; background: none; border: 1px solid var(--ink-3); border-radius: 6px; color: var(--ink-2, inherit); font: inherit; padding: 2px 8px; cursor: pointer; }
+.locale-switch:hover { color: var(--green-lt); border-color: var(--green); }
+.locale-switch:disabled { opacity: .5; cursor: wait; }
+.locale-switch.failed { color: var(--red); border-color: var(--red); }

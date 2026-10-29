@@ -1,13 +1,18 @@
 mod api;
 mod auth;
+mod client_pool;
 mod config;
 mod dispatch;
 mod governor;
 mod history;
 mod observation;
+mod performance;
 mod pool;
 mod presentation;
 mod proxy;
+mod racing;
+mod racing_api;
+mod racing_config;
 mod routes;
 mod settings;
 
@@ -78,6 +83,8 @@ pub struct Config {
     pub max_inflight: usize,
     /// Model-pressure governor settings (worker concurrency, not RPM).
     pub governor: GovernorSettings,
+    /// Explicit, administrator-managed routing policy; absent by default.
+    pub racing: Option<racing::RaceStrategy>,
 }
 
 pub struct GovernorSettings {
@@ -112,6 +119,10 @@ pub struct AppState {
     pub pool: PoolHandle,
     pub dispatch: Dispatcher,
     pub http: reqwest::Client,
+    /// Optimized HTTP client pool for racing
+    pub client_pool: Arc<client_pool::ClientPool>,
+    /// Performance tracker for model racing
+    pub perf_tracker: Arc<performance::PerformanceTracker>,
     pub models_cache: Mutex<Option<(Instant, Bytes)>>,
     /// Models that rejected stream_options injection; never inject for them again.
     pub no_inject: std::sync::Mutex<std::collections::HashSet<String>>,
@@ -622,14 +633,13 @@ pub async fn run() {
         })
     };
 
+    let client_pool = Arc::new(client_pool::ClientPool::new().expect("http client pool"));
     let state = Arc::new(AppState {
         dispatch: Dispatcher::new(pool.clone()),
         pool,
-        http: reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            // No overall timeout: generations stream for a long time.
-            .build()
-            .expect("http client"),
+        http: client_pool.get().as_ref().clone(),
+        client_pool,
+        perf_tracker: Arc::new(performance::PerformanceTracker::new()),
         models_cache: Mutex::new(None),
         no_inject: std::sync::Mutex::new(std::collections::HashSet::new()),
         model_labels: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -668,6 +678,23 @@ pub async fn run() {
         .route(
             routes::API_SETTINGS_VALIDATE_KEY,
             post(settings::validate_key),
+        )
+        // Racing API endpoints
+        .route(
+            routes::API_RACING_CONFIG,
+            get(racing_api::get_racing_config),
+        )
+        .route(
+            routes::API_RACING_CONFIG,
+            post(racing_api::update_racing_config),
+        )
+        .route(
+            routes::API_RACING_STATS,
+            get(racing_api::get_performance_stats),
+        )
+        .route(
+            routes::API_RACING_RANKED,
+            get(racing_api::get_ranked_models),
         )
         .fallback(api::api_not_found)
         .method_not_allowed_fallback(api::api_method_not_allowed)

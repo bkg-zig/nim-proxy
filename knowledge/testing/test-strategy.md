@@ -25,6 +25,17 @@ Use the proof that exercises the changed surface, and preserve the limits of
 that proof.
 
 - **Rust logic:** `cargo test` and `cargo clippy --all-targets -- -D warnings`.
+- **Model racing:** `cargo test --test racing` exercises same-model request-byte
+  preservation, immediate/delayed selection, complete buffered tool validation,
+  cancellation, deadlines, stream framing and shared admission against local
+  mock upstreams. `cargo test --test racing_config` proves pre-setup/session/admin
+  gates, authorization before body parsing, typed rejections, bounded policy
+  validation, durable restart, failed-save rollback, startup refusal, and
+  strict-passthrough exclusion through both general limits writers. Run the
+  route inventory, generated OpenAPI and field-order guards below with these
+  tests. The OpenAPI suite also rejects schemas that allow extra/mixed fields
+  for the closed named racing policies. Mock timing proves ordering and
+  ownership, not a production speedup.
 - **Canonical history-v1 codec:** `cargo test history::codec::tests --lib`
   exercises sanitized golden boot/sample/checkpoint bytes, canonical encode
   ordering, reordered-object decoding, and every declared negative diagnostic:
@@ -144,7 +155,7 @@ that proof.
   with separate runs proving an explicit user override and a null override
   falling back to the server default. The probe mutates only verified real
   responses at the existing CDP response boundary; production remains
-  `en-US`-only.
+  `en-US` plus `zh-CN`.
   The escape probe enforces the id/descriptor context-owned-sink contract:
   lexical resolver isolation, descriptor coercion refusal and one HTML
   resolver, the exact four-attribute
@@ -156,14 +167,17 @@ that proof.
 - **Number, date, and duration formatting:**
   `TZ=UTC LC_ALL=en_US.UTF-8 node scripts/formatter_fixture.js --check`.
 - **Catalog and UI text:** `python3 scripts/check_i18n.py --selftest`, then
-  `python3 scripts/check_i18n.py`; the current selftest has 102 negative or
+  `python3 scripts/check_i18n.py`; the current selftest has 121 negative or
   control cases, including void-element ownership and Settings source classes.
   When English changes, also run
   `python3 scripts/gen_pseudolocale.py --check`.
 - **Locale files:** `python3 scripts/locale_v1.py --selftest` and
   `python3 scripts/locale_v1.py --all`. When the public English projection
   changes, run `python3 scripts/locale_v1.py --update-public` and verify the
-  fixture diff. `en-XA` is generated in memory for render tests and must never
+  fixture diff. `--all` checks every production catalog against the canonical
+  source and binds its locale metadata to its filename; the self-test exercises
+  that directory entry point with a valid pair and six exact failure controls.
+  `en-XA` is generated in memory for render tests and must never
   be committed as a production locale.
 - **Pacing, pool, dispatch, and affinity:** use the enforcing mock and load
   harness; one upstream violation is failure. Follow the setup prerequisites
@@ -270,10 +284,10 @@ Two tests exist purely so the JSON contract cannot move by accident (see
   from the committed file. Regenerate with
   `UPDATE_OPENAPI=1 cargo test --test openapi`; CI's `check` job runs that and
   then `git diff --exit-code -- openapi.json`. `spec_is_usable` additionally
-  asserts the document is consumable — 17 operations, each tagged with a
-  documented 200, the 14 protected `/api/*` operations inheriting the auth
+  asserts the document is consumable — 21 operations, each tagged with a
+  documented 200, the 18 protected `/api/*` operations inheriting the auth
   requirement, and public bootstrap plus `/setup` explicitly waiving it.
-- `routes::tests::inventory_agrees_with_generated_openapi` owns the 36-row
+- `routes::tests::inventory_agrees_with_generated_openapi` owns the 40-row
   compiled method/path inventory, including explicit OpenAPI omissions, the
   `/v1/{*path}` template versus concrete probe, all ten presentation assets,
   and zero superuser-exclusive routes. `route_contract_behavior_matrix` sends the
@@ -410,10 +424,13 @@ This is the only gate that proves the page *runs*: `cargo test` asserts on
 served HTML text and `node --check` proves only that it parses. See
 [render-gate](../decisions/render-gate.md) and
 [message-catalog-and-escaping](../decisions/message-catalog-and-escaping.md).
-Run the complete Settings matrix under `--all-states --pseudolocale` after
-catalog work: it covers accessibility text, dialogs, validation/toast state,
-raw API errors, the catalog fallback for an unusable error body, and exact
-grouped Settings values above 10,000.
+Run `--all-states --pseudolocale` after catalog work. Its initial page run uses
+the generated locale, but the subsequent interaction matrix currently remains
+`en-US`: the selected locale is not passed to `runInteractionMatrix`.
+Consequently, its Settings assertions for accessibility, dialogs, validation,
+API errors, fallback copy, and exact grouped integers do not establish full
+translated-state coverage. The [local closure plan](../../docs/plans/zh-cn-local-handoff.md)
+records this pre-existing proof gap separately from the local Chinese action.
 Page-specific render assertions must compare rendered owned text with the
 selected catalog, not en-US literals; otherwise a real `en-XA` selection makes
 the harness reject correctly localized output before the untranslated-text

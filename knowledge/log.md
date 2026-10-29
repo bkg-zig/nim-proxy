@@ -6,6 +6,67 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-10-14] decision — deliver governed same-model request racing
+
+The [same-model decision](decisions/same-model-request-racing.md) now has an
+implementation that preserves the client-selected model and request bytes,
+keeps pending originals eligible after delayed launches, and chooses effective
+buffered or streaming output. Every send shares governor and RPM admission;
+sent losers retain their rate cost. Legacy multi-model policies are explicitly
+rejected. The [component](architecture/model-racing.md) and
+[operator guide](../docs/features/model-racing.md) describe the behavior and
+compatibility boundary. Independent source review found no blocking defect;
+the [delivery plan](../docs/plans/model-racing-implementation.md) records fresh
+verification and deployment state. No live performance gain is inferred.
+
+## [2026-10-12] component — distinguish same-model requirement from multi-model implementation
+
+The owner clarified that racing means concurrent request attempts for the same
+model. Source review confirmed the current implementation substitutes configured
+models, rejects duplicate IDs and cancels its primary before smart fallbacks.
+The [component page](architecture/model-racing.md) distinguishes executable
+behavior from the corrected requirement; the
+[active plan](../docs/plans/model-racing-implementation.md) records the scope
+delta, reusable mechanisms and pending acceptance work. No behavioral change or
+production latency claim accompanies this documentation correction.
+
+## [2026-10-10] component — complete opt-in model racing repair
+
+The configured chat-racing path now uses owned contender futures and the
+existing governor/RPM admission. Explicit admin configuration persists through
+the normal transaction; streaming selection requires meaningful SSE data and
+retains cancellation/deadline ownership. Independent review exposed CR/event
+framing, prefix-boundary and erroneous-success observations; committed red
+regressions now pass. Final local proof passed 378 tests with one existing
+release-only test ignored, plus Clippy, formatting and documentation guards.
+The [model-racing component](architecture/model-racing.md),
+[operator guide](../docs/features/model-racing.md), and
+[repair plan](../docs/plans/model-racing-implementation.md) own behavior,
+limitations and delivery evidence. No live NIM speedup is inferred.
+
+## [2026-10-07] maintenance — verify the local Chinese catalog at the guard entry point
+
+The local handoff audit reproduced that `locale_v1.py --all` inspected English
+and the public projection but only listed the Chinese filename. The guard now
+validates every production catalog and binds locale metadata to its file.
+Six negative temporary-repository controls first passed incorrectly, then
+failed with the expected check ids after repair. The local `zh-CN` decision
+also distinguishes this customization from planned upstream `zh-Hans` delivery.
+The existing browser matrix does not propagate `--pseudolocale` to its full
+interaction pass; the test strategy now states that limit. See
+[locale guards](decisions/locale-guards.md), [test strategy](testing/test-strategy.md),
+and the [local closure plan](../docs/plans/zh-cn-local-handoff.md).
+
+## [2026-10-07] feature — zh-CN production locale and dashboard language switch
+
+`zh-CN` is registered in `INSTALLED_LOCALES` with a full catalog validated by
+`locale-v1` (hashes copied from the en-US source, frozen tokens and unit
+abbreviations kept verbatim). `PRODUCTION_LOCALES` in `scripts/locale_v1.py`
+now lists `en-US` and `zh-CN`; e2e and the locale-precedence browser probe
+expect both in the bootstrap. The dashboard sidebar gains a language switch
+that sets the caller's own preference through `POST /api/settings/account`.
+See [locale guards](decisions/locale-guards.md).
+
 ## [2026-08-24] maintenance — reconcile governing documentation
 
 Contributor guidance now describes the split embedded presentation layer and

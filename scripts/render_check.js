@@ -6298,11 +6298,11 @@ async function main() {
       if (!startupState.bootstrapFromServer
           || JSON.stringify(startupState.bootstrapOriginal)
             !== JSON.stringify({
-              installed_locales: ['en-US'],
+              installed_locales: ['en-US', 'zh-CN'],
               server_default: 'en-US',
             })) {
         startupFailures.push(
-          `locale-precedence: real bootstrap provenance was not the production en-US-only response: ${JSON.stringify(startupState.bootstrapOriginal)}`,
+          `locale-precedence: real bootstrap provenance was not the production en-US + zh-CN response: ${JSON.stringify(startupState.bootstrapOriginal)}`,
         );
       }
       if (configIndex < 0) {

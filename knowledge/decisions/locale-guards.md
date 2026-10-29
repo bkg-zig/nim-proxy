@@ -52,8 +52,12 @@ translation was made from, so "still valid, no longer correct" is detectable.
 The one rich `src/web/locales/en-US.json` source is also the authority for the
 generated public fixture. That projection must contain every `setup.*`, every
 `login.*`, and only `common.app_name`; missing, extra, drifted, or non-ASCII
-ordered ids fail. The self-test contains 12 file fixtures and seven in-memory
-projection/schema cases, 19 named negative cases in total.
+ordered ids fail. The self-test contains 12 file fixtures, seven in-memory
+projection/schema cases, and seven temporary-repository controls of the actual
+`--all` entry point. The latter prove that every production catalog's content
+is checked, including missing ids, changed placeholders, stale hashes, and
+locale metadata that disagrees with its filename. Source and public projection
+metadata are pinned to `en-US`. The normal guard inspects both local catalogs.
 
 **Locale preference tag grammar.** Persisted and API-supplied preferences use
 one Rust canonicalizer for the frozen `language[-Script][-REGION]` subset:
@@ -63,7 +67,7 @@ title-cases Script, and uppercases alphabetic REGION. Whitespace, underscores,
 non-ASCII, variants, extensions, private use, and extra subtags are invalid.
 Syntax is checked before the compiled installed-locale registry, so a valid
 but unavailable tag has the distinct `locale_not_installed` contract.
-Production installs only `en-US`; `en-XA` remains valid syntax but is test-only
+Production installs `en-US` and `zh-CN`; `en-XA` remains valid syntax but is test-only
 and therefore rejected by the production preference APIs.
 
 **Untagged-string lint.** Fails on a display literal that bypasses `message()`,
@@ -98,6 +102,27 @@ asserts each one fails for its own reason. A check nobody has watched fail is
 decoration: nothing establishes it can.
 
 ## Consequences
+
+### Local zh-CN build (2026-10-07)
+
+The local deployment was already using `zh-CN` when its interrupted work was
+handed over for preservation and verification. The upstream v0.6.7 plan names
+`zh-Hans`; that remains a separate delivery decision, not an alias supported
+by this build. Renaming now would make existing `zh-CN` preferences uninstalled
+under the fail-closed store contract. Keep the local tag until an explicit
+upstream migration is designed and authorized.
+
+The local build embeds English and Simplified Chinese in the existing registry.
+The sidebar action writes only the caller's account preference through the
+existing account endpoint and reloads the page. It does not change the persisted
+server default or add browser-language negotiation. Translation values retain
+the existing `en` field, English source hashes, placeholders, and frozen tokens.
+This is a local catalog addition, not completion of the planned multilingual
+generation/review workflow or evidence of human translation approval.
+
+See the [local closure plan](../../docs/plans/zh-cn-local-handoff.md),
+[presentation component](../architecture/presentation-layer.md), and
+[test strategy](../testing/test-strategy.md) for scope and proof.
 
 - The guards immediately found three real defects that had survived PR 3's
   review and its own linter:

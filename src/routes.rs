@@ -38,6 +38,11 @@ pub const API_SETTINGS_ACCOUNT: &str = "/settings/account";
 pub const API_SETTINGS_LOCALE: &str = "/settings/locale";
 pub const API_SETTINGS_VALIDATE_KEY: &str = "/settings/validate-key";
 
+// Racing API endpoints
+pub const API_RACING_CONFIG: &str = "/racing/config";
+pub const API_RACING_STATS: &str = "/racing/stats";
+pub const API_RACING_RANKED: &str = "/racing/ranked";
+
 pub const HEALTH: &str = "/health";
 pub const LOGIN: &str = "/login";
 pub const LOGOUT: &str = "/logout";
@@ -301,6 +306,38 @@ const ROUTES: &[RouteContract] = &[
         probe_path: "/api/settings/locale",
     },
     RouteContract {
+        access: Access::OperatorAdmin,
+        method: "GET",
+        openapi: true,
+        path: "/api/racing/config",
+        phase: Phase::PostSetup,
+        probe_path: "/api/racing/config",
+    },
+    RouteContract {
+        access: Access::OperatorAdmin,
+        method: "POST",
+        openapi: true,
+        path: "/api/racing/config",
+        phase: Phase::PostSetup,
+        probe_path: "/api/racing/config",
+    },
+    RouteContract {
+        access: Access::OperatorAdmin,
+        method: "GET",
+        openapi: true,
+        path: "/api/racing/stats",
+        phase: Phase::PostSetup,
+        probe_path: "/api/racing/stats",
+    },
+    RouteContract {
+        access: Access::OperatorAdmin,
+        method: "GET",
+        openapi: true,
+        path: "/api/racing/ranked",
+        phase: Phase::PostSetup,
+        probe_path: "/api/racing/ranked",
+    },
+    RouteContract {
         access: Access::Public,
         method: "GET",
         openapi: false,
@@ -371,7 +408,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    const REGISTERED_API_PATHS: [&str; 15] = [
+    const REGISTERED_API_PATHS: [&str; 18] = [
         API_LOCALE_BOOTSTRAP,
         API_DASHBOARD,
         API_DASHBOARD_NOW,
@@ -387,12 +424,15 @@ mod tests {
         API_SETTINGS_ACCOUNT,
         API_SETTINGS_LOCALE,
         API_SETTINGS_VALIDATE_KEY,
+        API_RACING_CONFIG,
+        API_RACING_STATS,
+        API_RACING_RANKED,
     ];
 
     fn assert_registered_api_paths(registered_api_paths: &[&str]) {
         assert_eq!(
             registered_api_paths.len(),
-            15,
+            18,
             "route-contract:registration: every nested /api registration must be reconciled"
         );
         for registered_path in registered_api_paths {
@@ -420,7 +460,7 @@ mod tests {
             serde_json::from_str(&crate::api::openapi_json()).expect("generated OpenAPI JSON");
         let paths = spec["paths"].as_object().expect("OpenAPI paths");
 
-        assert_eq!(ROUTES.len(), 36, "route-contract:inventory");
+        assert_eq!(ROUTES.len(), 40, "route-contract:inventory");
         assert_eq!(
             ROUTES
                 .iter()
@@ -467,7 +507,7 @@ mod tests {
                 .iter()
                 .filter(|route| route.phase == Phase::PostSetup)
                 .count(),
-            23,
+            27,
             "route-contract:phase: operator, operator assets, and client routes"
         );
         assert!(
