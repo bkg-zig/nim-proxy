@@ -1,9 +1,177 @@
 # Plan — Model Racing Implementation
 
-**Status:** Local deployment complete, 2026-10-14 (Asia/Shanghai).
-Remote review and the full browser matrix remain pending as recorded below.
+**Status:** Two-channel new-api deployment verified, 2026-10-15 (Asia/Shanghai).
+The owner has resumed PR delivery to `taozheyin-dev/nim-proxy`; the original
+upstream and `main` are not publication targets for this work item.
 The earlier multi-model repair remains historical implementation evidence,
 not acceptance of the corrected requirement.
+
+## new-api integration — 2026-10-14
+
+The owner cancelled further PR work and requested a usefulness check followed
+by replacing the old NVIDIA channels in the local new-api instance with this
+proxy if useful. Draft PR #1 was closed. This operational work uses isolated
+branch `codex/new-api-integration` from the current integration branch; no PR
+will be created for it.
+
+- **Outcome:** prove real inference through nim-proxy, connect it to new-api,
+  verify the complete new-api → nim-proxy → NIM path, and remove precisely the
+  superseded NVIDIA channels after replacement validation.
+- **Proof:** bounded synthetic-prompt live requests with absolute deadlines;
+  record first effective/visible output, completion, failures and request cost
+  without storing credentials or prompt/completion content in repository files.
+  Back up relevant configuration privately, verify replacement channel routing,
+  then re-read new-api's channel state and run end-to-end inference.
+- **Constraint:** maintain authentication and limiter ownership, preserve
+  non-NVIDIA channels and their routing, never infer speed gains from a single
+  sample. Prefer native management APIs. Do not print credentials. Use the
+  existing 2-attempt/1000 ms policy unless measured evidence warrants a change.
+  No broad upstream key sweep; start with models already used by the old channel.
+- **Ponytail Rung:** 2/3/4 — reuse existing APIs, Python standard library,
+  Docker connectivity and the deployed binary; no production code change.
+- **Act:** inspect old channels, prepare a restorable backup, perform bounded
+  live usefulness checks, then replace and verify the authorized channels.
+
+Scope delta surfaced before action: authorized writes include the local
+new-api NVIDIA channel replacement and a dedicated proxy client credential
+if required. All other channels remain outside scope. The new-api container
+can reach `http://host.docker.internal:8001/health` successfully.
+
+The owner then requested two channels: `英伟达` without racing and
+`英伟达测试` with racing. Use two proxy instances with disjoint keys: 470
+for ordinary traffic on port 8001, eight for testing on port 8002. Retire the
+old benchmark process, which duplicated the production key set. Preserve its
+container/data for recovery. Put test routing in a separate `NVIDIA_TEST`
+new-api group; preserve the existing ordinary `default,NVIDIA` groups and all
+80 model ids. Add the test group with the same ratio as NVIDIA and an explicit
+test display label. New channels replace the old direct channel atomically.
+This is an operational split; no per-request policy or wire contract is added.
+
+### Resumed cutover — 2026-10-15
+
+The previous invocation stopped before changing either channel or partitioning
+the keys. Fresh inspection found the ordinary proxy still has 478 enabled keys
+and racing enabled. The old benchmark is stopped. The owner has now authorized
+PR work again under `taozheyin-dev`, and authenticated that account; its new
+fork is `https://github.com/taozheyin-dev/nim-proxy`.
+
+Scope delta shown before action: the still-running `nvidia-api-gateway` owns
+137 of the same keys (exact comparison after in-memory decryption; no key
+values emitted). Preserve that service and exclude those keys from both new
+pools. Ordinary traffic therefore gets 333 keys and testing gets eight,
+with 145 original entries retained disabled in the ordinary store. This
+supersedes the proposed 470/eight allocation above.
+
+- **Outcome:** replace the old direct channel with the two approved channels,
+  preserve its 80 model ids and ordinary groups, and publish review to the
+  owner's new fork.
+- **Proof:** fresh consistent SQLite backup and integrity check; replacement
+  transaction dry-run/rollback; exact unrelated-row comparisons; stopped-service
+  cutover; key-set and authentication checks; bounded real inference through
+  both ordinary and NVIDIA_TEST group routing. Review and validate documentation
+  with the agent-guide selftest/current-link check and `git diff --check`.
+- **Constraint:** never publish a test config before successful key exclusion.
+  Stop new-api and drain nim-proxy, then wait at least 61 seconds after shutdown
+  before starting either pool. Keep original data/containers for recovery.
+  Use a short-lived, model-limited probe token for the test group and revoke it
+  after verification. Client-side absolute deadlines do not assume new-api
+  forwards arbitrary headers. Do not claim measured speedup or global ownership
+  of keys outside the inspected services.
+- **Ponytail Rung:** 2/3/4 — repair existing operational scripts, use Python's
+  standard library and native Docker/GitHub operations; no proxy code change.
+- **Act:** correct the independently reviewed script gaps, repeat dry-run and
+  failure controls, execute cutover, verify, then ingest the operational runbook
+  and publish the reviewed branch against `feature/model-racing` on the new fork.
+
+Independent reviewer `integration_review` identified an unbounded stream-read
+loop, a rollback that left a launchable overlapping test config, and a pinned
+channel probe that did not exercise group routing. All were corrected before
+execution. The reviewer then independently reproduced a finite Content-Length
+EOF bug on Python 3.12 and verified the correction.
+
+### Verified cutover evidence — 2026-10-15
+
+- A fresh consistent backup passed SQLite integrity checking. The replacement
+  transaction passed dry-run/rollback; a changed-channel-name control fired
+  `Channel configuration changed since review` and preserved channel/token rows.
+- new-api and nim-proxy stopped with exit code zero. The final stopped-service
+  database backup has SHA256
+  `7b61e8e76665ec07d85d568499bcb6625f4164e380c33780dd6c3e84fcb0e779`.
+  It is private, alongside original channel/group rows and proxy config.
+- Channel 1 (`NVIDIA`, direct upstream) was replaced by channel 47 (`英伟达`,
+  `default,NVIDIA`, port 8001) and channel 48 (`英伟达测试`, `NVIDIA_TEST`,
+  port 8002). Each retains all 80 model ids. Ordinary routing has 160 ability
+  rows and testing has 80; unrelated historical ability rows compare equal.
+  No other current channel existed. Only the two group options changed.
+- Exact active-key comparisons prove ordinary/test counts 333/eight, no overlap,
+  and exclusion of all 137 keys owned by the preserved gateway. All 478 original
+  entries remain in the ordinary store, with 145 disabled. Ordinary racing is
+  off; test racing is two same-model attempts with a 1000 ms delay.
+- Both proxies started more than 61 seconds after the recorded stop: 132.235
+  and 133.400 seconds. Both use the previously verified image
+  `sha256:26cb95cbe871d76bb24aa4cd12207b301187ad45576a84417a56df0e7d54b467`.
+  The two proxy containers and new-api are running and healthy. Each proxy
+  returns health 200 and anonymous client/operator API 401.
+- Both real group-routed streaming requests completed successfully through
+  new-api and NIM. Completion logs identify channel 47 / `default` and channel
+  48 / `NVIDIA_TEST`. Each granted one upstream attempt and observed no 429
+  cooldown; racing counters increased by zero and one respectively. These are
+  connectivity/policy samples, not performance comparisons. A fast first
+  effective response can prevent the delayed copy from being sent.
+- The model-limited, expiring probe token was revoked and its credential erased
+  from the token row. new-api restarted to drop cached authorization; the old
+  probe token now receives HTTP 401. Existing user tokens were preserved.
+- The observer passed fragmented-SSE positive/negative controls, finite-length
+  completion, and an absolute-timeout control under continuous heartbeats.
+  The client deadline is 45 seconds, independent of custom-header forwarding.
+- Source, tests and examples were hash-compared with the verification container:
+  120 files match. A leftover transport-probe example was preserved outside the
+  build tree after its private-module compile error. The next full run in the
+  reused environment had two route-test failures; focused route checks passed
+  four tests, then the full run with a fresh temporary directory passed 397
+  tests (228 library, 119 E2E, 10 OpenAPI, 32 racing, eight configuration).
+  The normally ignored history restart/idle test was not rerun this session.
+  The earlier failures' cause is unproven; see the investigation record below.
+- Clippy with denied warnings, `cargo fmt --check`, all 12 guide failure
+  controls, current documentation links and `git diff --check` passed.
+  Independent final review found no technical blocker in the operational
+  scripts, runbook or sanitized reports, and independently verified EOF handling
+  and the fresh Rust counts. It did not rerun production requests.
+- The durable [new-api runbook](../../knowledge/ops/new-api-integration.md)
+  records ownership, cutover, verification and safe rollback. Secret-free local
+  reports are in `D:/Desktop/2api/nim-proxy-work/new-api-integration-20261014`;
+  its sibling `-private` directory contains restricted recovery data.
+  Browser matrix, release CI and human layout acceptance remain outside this
+  operational closure. No measured latency gain is claimed.
+- Published [draft PR #1](https://github.com/taozheyin-dev/nim-proxy/pull/1)
+  from `codex/new-api-integration` to the new fork's `feature/model-racing`
+  baseline (`41d77d5`). The PR is attached to this continuation chat. The
+  original upstream and main refs were not pushed. GitHub Actions currently
+  lists no registered workflows or runs on the new fork despite the workflow
+  files being present; attempts to enable CI and CodeQL by filename returned
+  404. Remote CI success is not claimed. Local operational/review evidence is
+  complete, while the draft retains those remote acceptance limits.
+
+### Pending verification-isolation investigation
+
+- **Title:** Route contract checks failed in reused verifier, then passed.
+- **What happened?** The first complete runnable check returned 200 instead of
+  pre-setup 503 in `route_contract_client_auth_matrix`, and observed one upstream
+  call during a static-asset row in `route_contract_behavior_matrix`. Production
+  auth smoke passed. The cause of the two test failures is not established.
+- **Steps to reproduce:** the observed command was `cargo test --locked --offline
+  -- --test-threads=4` in the long-lived `/tmp/nim-delivery` verification tree.
+  Four focused serialized route checks and a complete four-thread rerun with a
+  new `TMPDIR` passed. A deterministic reproducer remains pending.
+- **Auth mode:** synthetic configured/fresh stores, no production credentials.
+- **How are you running it?** Docker Rust verifier on a Windows host.
+- **Version or commit:** source at `37667e5`, unchanged by this operational item.
+- **Client / harness:** Rust `tests/e2e.rs` route-contract checks.
+- **Relevant logs:** `cargo-test-reused-env.log`, `route-recheck.log` and
+  `cargo-test.log` in the secret-free local report directory.
+- **Before submitting:** diagnosis/duplicate search pending; no credentials or
+  user request contents are included. The new fork also has issues disabled,
+  so the issue record remains here. This record does not assert a code cause.
 
 ## Delivery closure — 2026-10-14
 

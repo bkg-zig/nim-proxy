@@ -48,6 +48,9 @@ pool floor (removing/disabling the last one is a 400), so the pool can never
 empty. Per-model worker-concurrency limits are a separate concern — see the
 [governor](governor.md).
 
-Rate state is in-memory only: one proxy instance per key set (documented
-limitation), and windows reset on restart (post-restart burst 429s are
-absorbed by retry).
+Rate state is in-memory only: one active proxy instance per key set. Windows
+reset on restart, so operators must drain callers and wait out the 61-second
+window before starting a replacement or transferring keys. Retry does not
+prevent a rate violation caused by overlapping owners or a cold restart.
+See the [deployment](../ops/deploy-docker.md) and
+[new-api integration](../ops/new-api-integration.md) runbooks.

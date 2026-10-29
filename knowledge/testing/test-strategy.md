@@ -223,6 +223,15 @@ that proof.
   internal vertical scrollers, and clean runtime observations. This is
   mechanical evidence for review, never a claim of human visual approval.
 - **Before push:** `cargo fmt --check`.
+- **Operational new-api integration:** follow the
+  [runbook](../ops/new-api-integration.md). Validate a consistent backup, exercise
+  the replacement transaction with rollback, and require a named stale-channel
+  failure control. Verify key-set exclusion, stopped-service window transfer,
+  health/auth and actual ordinary/test group routing with bounded real requests.
+  A perpetual-heartbeat timeout and finite-length SSE control validate the
+  client observer. Re-read successful channel/group logs and prove temporary
+  token revocation. These checks establish deployment behavior, not speedup;
+  no Rust or browser behavior change is implied by an operational-only edit.
 
 CI runs the automated checks configured in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml);
 it does not perform human layout review or the strict load scenario. `cargo test`
