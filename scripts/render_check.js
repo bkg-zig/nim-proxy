@@ -101,7 +101,7 @@ const INTERACTION_ROWS = [
     dom: [{
       selector: 'main > section:not([hidden])',
       property: 'id-sequence',
-      equals: ['tab-overview', 'tab-models', 'tab-clients', 'tab-reliability', 'tab-capacity', 'tab-settings'],
+      equals: ['tab-overview', 'tab-models', 'tab-clients', 'tab-reliability', 'tab-capacity', 'tab-queue', 'tab-catalog', 'tab-settings'],
     }],
   },
   {
@@ -1311,7 +1311,7 @@ const DOM_CONTRACTS = {
   ],
   'navigation-dashboard-tabs': [
     domContract('visible-section-after-each-activation', `document.querySelector('main > section:not([hidden])')?.id ?? null`,
-      ['tab-overview', 'tab-models', 'tab-clients', 'tab-reliability', 'tab-capacity', 'tab-settings'],
+      ['tab-overview', 'tab-models', 'tab-clients', 'tab-reliability', 'tab-capacity', 'tab-queue', 'tab-catalog', 'tab-settings'],
       {
         kind: 'sequence',
         steps: [
@@ -1320,6 +1320,8 @@ const DOM_CONTRACTS = {
           '#side [data-tab="clients"]',
           '#side [data-tab="reliability"]',
           '#side [data-tab="capacity"]',
+          '#side [data-tab="queue"]',
+          '#side [data-tab="catalog"]',
           '#side [data-tab="settings"]',
         ],
       }),
@@ -1840,6 +1842,8 @@ const EXPLICIT_REQUEST_SEQUENCES = {
     getRequest('/assets/public/locales/en-US.json'),
   ],
   'navigation-dashboard-tabs': [
+    getRequest('/api/queue'),
+    getRequest('/api/models'),
     getRequest('/api/config'),
   ],
   'navigation-settings-role-panels': [

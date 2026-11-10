@@ -9,7 +9,8 @@ let activeTab = 'overview';
 const TITLES = {
   overview: 'dashboard.nav.tab.overview', models: 'dashboard.nav.tab.models',
   clients: 'dashboard.nav.tab.clients', reliability: 'dashboard.nav.tab.reliability',
-  capacity: 'dashboard.nav.tab.capacity', settings: 'dashboard.nav.tab.settings',
+  capacity: 'dashboard.nav.tab.capacity', queue: 'dashboard.nav.tab.queue',
+  catalog: 'dashboard.nav.tab.catalog', settings: 'dashboard.nav.tab.settings',
 };
 
 function render() {
@@ -813,8 +814,70 @@ function renderCapacity(c) {
   })), { defaultIdx: 1, maxH: 360, minW: 560, empty: catalogMessage('dashboard.common.empty.no_keys_configured') });
 }
 
+/* ===== queue (operator request queue, admin only) ===== */
+let queueLoading = false;
+async function loadQueue() {
+  if (queueLoading) return;
+  queueLoading = true;
+  try {
+    const response = await fetch('/api/queue');
+    if (!response.ok) throw new Error(`queue ${response.status}`);
+    const data = await response.json();
+    const requests = Array.isArray(data.requests) ? data.requests : [];
+    setMessageText($('q-count'), 'dashboard.queue.count', { count: fmt(requests.length) });
+    sortTable($('queue-table'), 'queue', [
+      { label: catalogMessage('dashboard.queue.col.client'), align: 'l', str: true },
+      { label: catalogMessage('dashboard.queue.col.model'), align: 'l', str: true },
+      { label: catalogMessage('dashboard.queue.col.path'), align: 'l', str: true },
+      { label: catalogMessage('dashboard.queue.col.phase'), align: 'l', str: true },
+      { label: catalogMessage('dashboard.queue.col.age') },
+      { label: catalogMessage('dashboard.queue.col.action'), align: 'l', str: true },
+    ], requests.map(r => ({
+      vals: [String(r.client ?? ''), String(r.model ?? ''), String(r.path ?? ''),
+        String(r.phase ?? ''), +r.age_s || 0, ''],
+      cells: [escapeHtml(r.client ?? ''), escapeHtml(r.model ?? ''), escapeHtml(r.path ?? ''),
+        escapeHtml(r.phase ?? ''), fmt(+r.age_s || 0),
+        `<button class="apply" data-terminate="${+r.id || 0}">${escapeHtml(catalogMessage('dashboard.queue.terminate'))}</button>`],
+    })), { defaultIdx: 4, empty: catalogMessage('dashboard.queue.empty') });
+  } catch {
+    $('queue-table').innerHTML =
+      `<div class="empty">${escapeHtml(catalogMessage('dashboard.queue.error'))}</div>`;
+  } finally {
+    queueLoading = false;
+  }
+}
+
+/* ===== catalog (upstream model directory) ===== */
+let catalogLoading = false;
+async function loadCatalog(refresh = false) {
+  if (catalogLoading) return;
+  catalogLoading = true;
+  try {
+    const response = await fetch(refresh ? '/api/models?refresh=1' : '/api/models');
+    if (!response.ok) throw new Error(`models ${response.status}`);
+    const data = await response.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+    setMessageText($('catalog-meta'), 'dashboard.catalog.meta', {
+      count: fmt(models.length), ttl: fmt(+data.ttl_secs || 0),
+    });
+    sortTable($('catalog-table'), 'catalog', [
+      { label: catalogMessage('dashboard.catalog.col.model'), align: 'l', str: true },
+      { label: catalogMessage('dashboard.catalog.col.publisher'), align: 'l', str: true },
+    ], models.map(m => ({
+      vals: [String(m.id ?? ''), String(m.owned_by ?? '')],
+      cells: [escapeHtml(m.id ?? ''), escapeHtml(m.owned_by ?? '')],
+    })), { defaultIdx: 0, defaultAsc: true, empty: catalogMessage('dashboard.catalog.empty') });
+  } catch {
+    $('catalog-table').innerHTML =
+      `<div class="empty">${escapeHtml(catalogMessage('dashboard.catalog.error'))}</div>`;
+  } finally {
+    catalogLoading = false;
+  }
+}
+
 const RENDERERS = { overview: renderOverview, models: renderModels, clients: renderClients,
   reliability: renderReliability, capacity: renderCapacity,
+  queue: () => { loadQueue(); }, catalog: () => { loadCatalog(); },
   settings: () => {} /* settings never rides the metrics poll */ };
 
 /* ---------- data sources ---------- */
@@ -850,6 +913,10 @@ function applyNowConfig(next) {
   });
   const defaultButton = document.querySelector('#ranges [data-range="default"]');
   if (defaultButton) setMessageText(defaultButton, 'dashboard.topbar.range.default_dynamic', { days: fmt(cfg.default_window_days) });
+  // The queue surface is admin-only; hide its nav entry for plain users
+  // (the server still enforces the gate on /api/queue itself).
+  const queueNav = $('nav-queue');
+  if (queueNav) queueNav.hidden = !(next.role === 'admin' || next.role === 'superuser');
 }
 
 function followingBounds() {
@@ -1068,11 +1135,34 @@ for (const b of document.querySelectorAll('#side nav button')) {
     // Settings is config-driven: hide the metrics range picker and (re)fetch.
     document.body.classList.toggle('on-settings', activeTab === 'settings');
     if (activeTab === 'settings') loadSettings();
+    if (activeTab === 'queue') loadQueue();
+    if (activeTab === 'catalog') loadCatalog();
     location.hash = activeTab;
     render();
   });
   if (location.hash === '#' + b.dataset.tab) b.click();
 }
+/* Queue terminate buttons are re-created on every table render, so the
+   click handler lives on the stable container (event delegation). */
+$('queue-table').addEventListener('click', async event => {
+  const button = event.target.closest('[data-terminate]');
+  if (!button) return;
+  const id = +button.dataset.terminate;
+  if (!id || !confirmMessage('dashboard.queue.confirm')) return;
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/queue/terminate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!response.ok) throw new Error(`terminate ${response.status}`);
+    await loadQueue();
+  } catch {
+    button.disabled = false;
+  }
+});
+$('catalog-refresh').addEventListener('click', () => loadCatalog(true));
 document.body.hidden = false;
 
 /* ---------- boot ---------- */

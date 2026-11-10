@@ -122,6 +122,38 @@
       "en": "Slot {n}",
       "hash": "18616a78"
     },
+    "dashboard.catalog.col.model": {
+      "en": "Model",
+      "hash": "5e2c614c"
+    },
+    "dashboard.catalog.col.publisher": {
+      "en": "Publisher",
+      "hash": "21378545"
+    },
+    "dashboard.catalog.empty": {
+      "en": "No models returned",
+      "hash": "ca559f90"
+    },
+    "dashboard.catalog.error": {
+      "en": "Model catalog failed to load",
+      "hash": "520c38af"
+    },
+    "dashboard.catalog.heading": {
+      "en": "Model catalog",
+      "hash": "1b43e2d0"
+    },
+    "dashboard.catalog.meta": {
+      "en": "{count} models · cache ttl {ttl}s",
+      "hash": "21e6ccdd"
+    },
+    "dashboard.catalog.note": {
+      "en": "upstream model directory",
+      "hash": "14c20fd8"
+    },
+    "dashboard.catalog.refresh": {
+      "en": "Refresh",
+      "hash": "0e916101"
+    },
     "dashboard.chart.active": {
       "en": "Active",
       "hash": "92340695"
@@ -701,6 +733,10 @@
       "en": "Capacity",
       "hash": "ae65d096"
     },
+    "dashboard.nav.tab.catalog": {
+      "en": "Catalog",
+      "hash": "3877d148"
+    },
     "dashboard.nav.tab.clients": {
       "en": "Clients",
       "hash": "65a72565"
@@ -712,6 +748,10 @@
     "dashboard.nav.tab.overview": {
       "en": "Overview",
       "hash": "d4b1ea57"
+    },
+    "dashboard.nav.tab.queue": {
+      "en": "Queue",
+      "hash": "3b2fe03e"
     },
     "dashboard.nav.tab.reliability": {
       "en": "Reliability",
@@ -836,6 +876,58 @@
     "dashboard.overview.traffic.heading": {
       "en": "Traffic",
       "hash": "4876efb7"
+    },
+    "dashboard.queue.col.action": {
+      "en": "Action",
+      "hash": "64cff131"
+    },
+    "dashboard.queue.col.age": {
+      "en": "Age (s)",
+      "hash": "6d0b97aa"
+    },
+    "dashboard.queue.col.client": {
+      "en": "Client",
+      "hash": "0c77fe09"
+    },
+    "dashboard.queue.col.model": {
+      "en": "Model",
+      "hash": "5e2c614c"
+    },
+    "dashboard.queue.col.path": {
+      "en": "Path",
+      "hash": "62fa5a5b"
+    },
+    "dashboard.queue.col.phase": {
+      "en": "Phase",
+      "hash": "46342ec1"
+    },
+    "dashboard.queue.confirm": {
+      "en": "Terminate this request? Its client receives error code -91.",
+      "hash": "074fa652"
+    },
+    "dashboard.queue.count": {
+      "en": "{count} in flight",
+      "hash": "dfbcd7e5"
+    },
+    "dashboard.queue.empty": {
+      "en": "No requests in flight",
+      "hash": "afc6fa74"
+    },
+    "dashboard.queue.error": {
+      "en": "Request queue failed to load",
+      "hash": "213ba74a"
+    },
+    "dashboard.queue.heading": {
+      "en": "Request queue",
+      "hash": "8e5155e5"
+    },
+    "dashboard.queue.note": {
+      "en": "in-flight requests · admin only",
+      "hash": "c80cb633"
+    },
+    "dashboard.queue.terminate": {
+      "en": "Terminate",
+      "hash": "f913f092"
     },
     "dashboard.reliability.col.first_token": {
       "en": "First token",

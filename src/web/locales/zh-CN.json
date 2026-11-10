@@ -141,6 +141,38 @@
       "en": "槽位 {n}",
       "hash": "18616a78"
     },
+    "dashboard.catalog.col.model": {
+      "en": "模型",
+      "hash": "5e2c614c"
+    },
+    "dashboard.catalog.col.publisher": {
+      "en": "发布者",
+      "hash": "21378545"
+    },
+    "dashboard.catalog.empty": {
+      "en": "没有返回模型",
+      "hash": "ca559f90"
+    },
+    "dashboard.catalog.error": {
+      "en": "模型目录加载失败",
+      "hash": "520c38af"
+    },
+    "dashboard.catalog.heading": {
+      "en": "模型目录",
+      "hash": "1b43e2d0"
+    },
+    "dashboard.catalog.meta": {
+      "en": "{count} 个模型 · 缓存 ttl {ttl} 秒",
+      "hash": "21e6ccdd"
+    },
+    "dashboard.catalog.note": {
+      "en": "上游模型目录",
+      "hash": "14c20fd8"
+    },
+    "dashboard.catalog.refresh": {
+      "en": "刷新",
+      "hash": "0e916101"
+    },
     "dashboard.chart.active": {
       "en": "活跃",
       "hash": "92340695"
@@ -767,6 +799,10 @@
       "en": "容量",
       "hash": "ae65d096"
     },
+    "dashboard.nav.tab.catalog": {
+      "en": "目录",
+      "hash": "3877d148"
+    },
     "dashboard.nav.tab.clients": {
       "en": "客户端",
       "hash": "65a72565"
@@ -779,6 +815,10 @@
     "dashboard.nav.tab.overview": {
       "en": "概览",
       "hash": "d4b1ea57"
+    },
+    "dashboard.nav.tab.queue": {
+      "en": "队列",
+      "hash": "3b2fe03e"
     },
     "dashboard.nav.tab.reliability": {
       "en": "可靠性",
@@ -906,6 +946,58 @@
     "dashboard.overview.traffic.heading": {
       "en": "流量",
       "hash": "4876efb7"
+    },
+    "dashboard.queue.col.action": {
+      "en": "操作",
+      "hash": "64cff131"
+    },
+    "dashboard.queue.col.age": {
+      "en": "时长（秒）",
+      "hash": "6d0b97aa"
+    },
+    "dashboard.queue.col.client": {
+      "en": "客户端",
+      "hash": "0c77fe09"
+    },
+    "dashboard.queue.col.model": {
+      "en": "模型",
+      "hash": "5e2c614c"
+    },
+    "dashboard.queue.col.path": {
+      "en": "路径",
+      "hash": "62fa5a5b"
+    },
+    "dashboard.queue.col.phase": {
+      "en": "阶段",
+      "hash": "46342ec1"
+    },
+    "dashboard.queue.confirm": {
+      "en": "终止此请求？其客户端将收到错误码 -91。",
+      "hash": "074fa652"
+    },
+    "dashboard.queue.count": {
+      "en": "{count} 个进行中",
+      "hash": "dfbcd7e5"
+    },
+    "dashboard.queue.empty": {
+      "en": "没有进行中的请求",
+      "hash": "afc6fa74"
+    },
+    "dashboard.queue.error": {
+      "en": "请求队列加载失败",
+      "hash": "213ba74a"
+    },
+    "dashboard.queue.heading": {
+      "en": "请求队列",
+      "hash": "8e5155e5"
+    },
+    "dashboard.queue.note": {
+      "en": "进行中的请求 · 仅管理员",
+      "hash": "c80cb633"
+    },
+    "dashboard.queue.terminate": {
+      "en": "终止",
+      "hash": "f913f092"
     },
     "dashboard.reliability.col.first_token": {
       "en": "首 token",
@@ -1542,6 +1634,38 @@
       "en": "移除覆盖",
       "hash": "6d43eea1"
     },
+    "settings.server.search.base_url": {
+      "en": "服务商端点",
+      "hash": "ea39c482"
+    },
+    "settings.server.search.format": {
+      "en": "响应格式",
+      "hash": "052b8391"
+    },
+    "settings.server.search.format_json": {
+      "en": "json",
+      "hash": "02bd175f"
+    },
+    "settings.server.search.format_rss": {
+      "en": "rss",
+      "hash": "c6cc4283"
+    },
+    "settings.server.search.heading": {
+      "en": "网络搜索服务商",
+      "hash": "04e17fbb"
+    },
+    "settings.server.search.help": {
+      "en": "在网关内向此端点运行 web_search 工具调用",
+      "hash": "9771bc59"
+    },
+    "settings.server.search.max_results": {
+      "en": "最大结果数",
+      "hash": "caa0adc2"
+    },
+    "settings.server.search.timeout": {
+      "en": "服务商超时",
+      "hash": "1998a1c3"
+    },
     "settings.server.strict_note": {
       "en": "拒绝上游不接受的参数。",
       "hash": "4e5f898d"
@@ -1743,6 +1867,10 @@
     "settings.validation.saved": {
       "en": "已保存。",
       "hash": "fca046cc"
+    },
+    "settings.validation.search": {
+      "en": "请检查网络搜索的值",
+      "hash": "68783a83"
     },
     "settings.validation.slo": {
       "en": "SLO 目标必须大于 0 且不超过 100。",

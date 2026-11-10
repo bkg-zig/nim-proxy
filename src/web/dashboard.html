@@ -20,6 +20,8 @@
     <button data-tab="clients"><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5l-2.5 3L4 11M12 5l2.5 3L12 11M9.5 3l-3 10"/></svg><span class="label" data-i18n="dashboard.nav.tab.clients">Clients</span></button>
     <button data-tab="reliability"><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l5 2v4c0 3.5-2.4 6-5 7-2.6-1-5-3.5-5-7v-4z"/></svg><span class="label" data-i18n="dashboard.nav.tab.reliability">Reliability</span></button>
     <button data-tab="capacity"><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 11a6 6 0 0112 0M8 11l3-3.5"/></svg><span class="label" data-i18n="dashboard.nav.tab.capacity">Capacity</span></button>
+    <button data-tab="queue" id="nav-queue" hidden><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h12M2 12h7"/></svg><span class="label" data-i18n="dashboard.nav.tab.queue">Queue</span></button>
+    <button data-tab="catalog"><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h10v11H3zM5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg><span class="label" data-i18n="dashboard.nav.tab.catalog">Catalog</span></button>
     <button data-tab="settings"><span class="nbar"></span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.6v2.1M8 12.3v2.1M1.6 8h2.1M12.3 8h2.1M3.5 3.5L5 5M11 11l1.5 1.5M12.5 3.5L11 5M5 11l-1.5 1.5"/></svg><span class="label" data-i18n="dashboard.nav.tab.settings">Settings</span></button>
   </nav>
   <div class="foot">
@@ -264,6 +266,21 @@
     <div class="card">
       <h2 data-i18n-text="dashboard.capacity.perkey.heading">Per key <span class="tag" data-i18n="dashboard.common.tag.now">Now</span><span class="note" data-i18n="dashboard.common.sort_hint">click a column to sort</span></h2>
       <div id="table-lanes"></div>
+    </div>
+  </section>
+
+  <section id="tab-queue" hidden>
+    <div class="card">
+      <h2 data-i18n-text="dashboard.queue.heading"><svg class="hic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h7"/></svg>Request queue <span class="note" data-i18n="dashboard.queue.note">in-flight requests · admin only</span><span class="hr" id="q-count"></span></h2>
+      <div id="queue-table"></div>
+    </div>
+  </section>
+
+  <section id="tab-catalog" hidden>
+    <div class="card">
+      <h2 data-i18n-text="dashboard.catalog.heading"><svg class="hic" viewBox="0 0 16 16"><path d="M3 2.5h10v11H3zM5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>Model catalog <span class="note" data-i18n="dashboard.catalog.note">upstream model directory</span><span class="hr"><button class="apply" id="catalog-refresh" data-i18n="dashboard.catalog.refresh">Refresh</button></span></h2>
+      <div class="note" id="catalog-meta"></div>
+      <div id="catalog-table"></div>
     </div>
   </section>
 
