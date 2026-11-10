@@ -17,7 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use support::{
     chat_body, complete_setup, expect_refuses_to_start, login, login_as, metrics, read_sse,
     restart, scratch_data_dir, start_mock, start_proxy, start_proxy_fresh, start_proxy_in,
-    start_proxy_with, Behavior, StoreOpts, TEST_PASSWORD,
+    start_proxy_with, start_search_mock, Behavior, SearchBehavior, StoreOpts, TEST_PASSWORD,
 };
 
 fn client() -> reqwest::Client {
@@ -313,6 +313,11 @@ fn contract_body(
             "messages": [{"content": format!("route contract {suffix}"), "role": "user"}],
             "model": "mock/model-a",
             "stream": false
+        }),
+        "v1-messages" => serde_json::json!({
+            "messages": [{"content": format!("route contract {suffix}"), "role": "user"}],
+            "model": "mock/model-a",
+            "max_tokens": 64
         }),
         "login-post" => {
             return Some(format!(
@@ -786,6 +791,25 @@ async fn route_contract_behavior_matrix() {
             path: "/v1/chat/completions",
         },
         RouteBehavior {
+            access: ContractAccess::Client,
+            accept_html: false,
+            expectations: [
+                contract_expectation(503, Some("setup_required")),
+                contract_expectation(200, None),
+                contract_expectation(200, None),
+                contract_expectation(200, None),
+                contract_expectation(200, None),
+            ],
+            method: "POST",
+            name: "v1-messages",
+            phase: ContractPhase::PostSetup,
+            request: ContractRequest::Json,
+            side_effect: ContractSideEffect::Upstream,
+            success_content_type: Some("application/json"),
+            success_status: 200,
+            path: "/v1/messages",
+        },
+        RouteBehavior {
             access: ContractAccess::OperatorAdmin,
             accept_html: false,
             expectations: configured_contract_expectations(200, 403),
@@ -996,7 +1020,7 @@ async fn route_contract_behavior_matrix() {
         },
     ];
 
-    assert_eq!(rows.len(), 40, "route-contract:inventory");
+    assert_eq!(rows.len(), 41, "route-contract:inventory");
 
     let mock = start_mock().await;
     let before_setup = start_proxy_fresh().await;
@@ -3273,15 +3297,17 @@ async fn request_shape_and_quality_metrics_are_recorded() {
 
     // Request shape (labeled by client — open mode admits everyone as "local").
     assert!(
-        metrics.contains(r#"nimproxy_stream_requests_total{client="local",stream="true"}"#),
+        metrics.contains(
+            r#"nimproxy_stream_requests_total{client="local",endpoint="chat",stream="true"}"#
+        ),
         "stream flag counted: {metrics}"
     );
     assert!(
-        metrics.contains(r#"nimproxy_request_messages_count{client="local"}"#),
+        metrics.contains(r#"nimproxy_request_messages_count{client="local",endpoint="chat"}"#),
         "conversation depth histogram present"
     );
     assert!(
-        metrics.contains(r#"nimproxy_request_tools_count{client="local"}"#),
+        metrics.contains(r#"nimproxy_request_tools_count{client="local",endpoint="chat"}"#),
         "tools-offered histogram present"
     );
     assert!(
@@ -3293,7 +3319,7 @@ async fn request_shape_and_quality_metrics_are_recorded() {
         "max_tokens histogram present"
     );
     assert!(
-        metrics.contains(r#"nimproxy_tool_choice_total{mode="auto"}"#),
+        metrics.contains(r#"nimproxy_tool_choice_total{endpoint="chat",mode="auto"}"#),
         "tool_choice mode counted"
     );
 
@@ -3398,11 +3424,11 @@ async fn buffered_quality_and_edge_cases_are_recorded() {
 
     // Edge cases.
     assert!(
-        metrics.contains(r#"nimproxy_tool_choice_total{mode="required"}"#),
+        metrics.contains(r#"nimproxy_tool_choice_total{endpoint="chat",mode="required"}"#),
         "non-auto tool_choice mode recorded"
     );
     assert!(
-        metrics.contains(r#"nimproxy_json_mode_total{client="local"}"#),
+        metrics.contains(r#"nimproxy_json_mode_total{client="local",endpoint="chat"}"#),
         "JSON mode recorded"
     );
     assert!(
@@ -3412,6 +3438,693 @@ async fn buffered_quality_and_edge_cases_are_recorded() {
     assert!(
         !metrics.contains(r#"reason="banana""#),
         "raw upstream finish_reason never becomes a label"
+    );
+}
+
+/// The Anthropic Messages bridge proof: a bridge request is converted to the
+/// OpenAI wire, paced through the pipeline against `/v1/chat/completions`
+/// (the mock's only chat route), and converted back into an Anthropic
+/// message. Every failure path keeps its status class and shape: proxy-own
+/// failures (auth, setup) stay proxy-style, upstream failures re-shape-map
+/// into the Anthropic error envelope.
+fn bridge_body(text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": "mock/model-a",
+        "max_tokens": 64,
+        "system": "you are a bridge test",
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": text}]}
+        ]
+    })
+}
+
+#[tokio::test]
+async fn messages_bridge_converts_paces_and_maps_back() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&bridge_body("bridge success"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "bridge success is an Anthropic 200");
+    let message: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(message["id"], "msg_mock-1", "{message}");
+    assert_eq!(message["type"], "message", "{message}");
+    assert_eq!(message["role"], "assistant", "{message}");
+    assert_eq!(
+        message["model"], "mock/model-a",
+        "request model echoed: {message}"
+    );
+    assert_eq!(
+        message["content"],
+        serde_json::json!([{"type": "text", "text": "hello world"}]),
+        "{message}"
+    );
+    assert_eq!(message["stop_reason"], "end_turn", "{message}");
+    assert_eq!(
+        message["usage"],
+        serde_json::json!({"input_tokens": 11, "output_tokens": 2}),
+        "{message}"
+    );
+
+    // The request must have reached the mock as a converted OpenAI chat: the
+    // mock routes only `/v1/chat/completions`, so a 200 already proves the
+    // rewrite; assert the wire shape the mock recorded.
+    {
+        let hits = mock.state.hits.lock().unwrap();
+        assert_eq!(hits.len(), 1, "exactly one upstream call: {hits:?}");
+        let hit = &hits[0];
+        assert_eq!(hit.body["model"], "mock/model-a", "{hit:?}");
+        assert_eq!(hit.body["max_tokens"], 64, "{hit:?}");
+        let messages = hit.body["messages"].as_array().expect("chat messages");
+        assert_eq!(
+            messages[0],
+            serde_json::json!({"role": "system", "content": "you are a bridge test"}),
+            "system prompt converted to a chat system message: {hit:?}"
+        );
+        assert_eq!(
+            messages[1],
+            serde_json::json!({"role": "user", "content": "bridge success"}),
+            "text blocks flattened to chat user content: {hit:?}"
+        );
+    }
+
+    // The bridge's request shape lands on the messages endpoint label.
+    let metrics = metrics(&proxy).await;
+    assert!(
+        metrics.contains(
+            r#"nimproxy_stream_requests_total{client="local",endpoint="messages",stream="false"}"#
+        ),
+        "bridge shape counted on the messages endpoint: {metrics}"
+    );
+}
+
+/// A client tool offer without name, description, or input_schema reaches
+/// the upstream with the generated OpenAI function schema and catalog copy,
+/// and the response echoes `caller: {"type": "direct"}` on the tool_use.
+#[tokio::test]
+async fn messages_bridge_client_tool_schemas_echo_direct_caller() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 64,
+            "tools": [
+                // Explicit name rides the wire; the generated bash schema
+                // and catalog description fill in the rest.
+                {"type": "bash_20250124", "name": "get_weather"},
+                // Unnamed computer offer: family default name + schema.
+                {"type": "computer_use_20251124"}
+            ],
+            "messages": [{"role": "user", "content": "run it"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "bridge success: {response:?}");
+    let message: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(message["type"], "message", "{message}");
+    let tool_use = &message["content"][0];
+    assert_eq!(tool_use["type"], "tool_use", "{message}");
+    assert_eq!(tool_use["name"], "get_weather", "{message}");
+    assert_eq!(
+        tool_use["caller"],
+        serde_json::json!({"type": "direct"}),
+        "the offered client tool echoes the direct caller: {message}"
+    );
+    assert_eq!(message["stop_reason"], "tool_use", "{message}");
+
+    {
+        let hits = mock.state.hits.lock().unwrap();
+        let hit = &hits[0];
+        let tools = hit.body["tools"].as_array().expect("generated tools");
+        assert_eq!(tools.len(), 2, "{hit:?}");
+        assert_eq!(tools[0]["function"]["name"], "get_weather");
+        let bash_props = tools[0]["function"]["parameters"]["properties"]
+            .as_object()
+            .expect("bash properties");
+        assert!(bash_props.contains_key("command") && bash_props.contains_key("restart"));
+        assert_eq!(
+            tools[0]["function"]["description"],
+            "Execute shell commands in a persistent bash session.",
+            "catalog copy fills in when the offer carries none: {hit:?}"
+        );
+        // The unnamed offer gets the family default name and the zoom-era
+        // computer schema.
+        assert_eq!(tools[1]["function"]["name"], "computer");
+        let actions = tools[1]["function"]["parameters"]["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum");
+        assert!(
+            actions.iter().any(|a| a == "zoom"),
+            "computer_use_20251124 carries the zoom action: {actions:?}"
+        );
+    }
+
+    let metrics = metrics(&proxy).await;
+    assert!(
+        metrics.contains(r#"nimproxy_tool_type_total{type="bash"} 1"#),
+        "the bash offer counts on the frozen vocabulary: {metrics}"
+    );
+    assert!(
+        metrics.contains(r#"nimproxy_tool_type_total{type="computer"} 1"#),
+        "{metrics}"
+    );
+}
+
+#[tokio::test]
+async fn messages_bridge_maps_failures_into_anthropic_envelopes() {
+    let mock = start_mock().await;
+    let proxy = start_proxy_with(
+        &mock.url,
+        StoreOpts {
+            nim_keys: vec![("only-key".into(), 40)],
+            clients: vec![("bridge-client".into(), "bridge-secret".into())],
+            open: false,
+            ..Default::default()
+        },
+        &[],
+    )
+    .await;
+
+    // Proxy-own 401: keyed mode rejects a missing bearer before any bridge
+    // work, and the proxy-style envelope is the contract for auth failures.
+    let missing = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&bridge_body("bridge auth"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 401, "missing bearer is a proxy 401");
+    assert_eq!(
+        missing
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok()),
+        Some("Bearer"),
+        "the 401 advertises Bearer auth"
+    );
+    let body: serde_json::Value = missing.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "unauthorized", "{body}");
+    assert_eq!(body["error"]["type"], "proxy_error", "{body}");
+
+    // Upstream 429s are pacing-class: the proxy rides them out with lane
+    // failover, so the bridge client sees the converted success, never the 429.
+    let ridden_start = mock.state.hit_count();
+    mock.state.push(support::Behavior::RateLimited(1));
+    mock.state.push(support::Behavior::RateLimited(1));
+    let ridden = client()
+        .post(proxy.url("/v1/messages"))
+        .bearer_auth("bridge-secret")
+        .json(&bridge_body("bridge 429"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ridden.status(), 200, "429s ridden out by lane failover");
+    let message: serde_json::Value = ridden.json().await.unwrap();
+    assert_eq!(message["type"], "message", "{message}");
+    let keys = mock.state.hit_keys();
+    assert_eq!(keys.len(), 3, "two 429s then a success on the single lane");
+    assert!(
+        keys.iter().all(|key| key == "only-key"),
+        "the single NIM lane served every attempt"
+    );
+    assert_eq!(
+        ridden_start, 0,
+        "the rideout is this test's only traffic so far"
+    );
+
+    // A non-retryable upstream 400 re-shape-maps into the Anthropic error
+    // envelope, keeping the upstream status.
+    mock.state.push(support::Behavior::BadRequest);
+    let bad = client()
+        .post(proxy.url("/v1/messages"))
+        .bearer_auth("bridge-secret")
+        .json(&bridge_body("bridge bad request"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400, "upstream 400 keeps its status");
+    let body: serde_json::Value = bad.json().await.unwrap();
+    assert_eq!(body["type"], "error", "{body}");
+    assert_eq!(body["error"]["type"], "invalid_request_error", "{body}");
+    assert_eq!(body["error"]["message"], "bad stream_options", "{body}");
+
+    // Typed 400s: a missing model and a server tool are bridge rejections —
+    // Anthropic-shaped, and the server tool counts as `server_rejected`.
+    let no_model = client()
+        .post(proxy.url("/v1/messages"))
+        .bearer_auth("bridge-secret")
+        .json(&serde_json::json!({"messages": []}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_model.status(), 400);
+    let body: serde_json::Value = no_model.json().await.unwrap();
+    assert_eq!(body["type"], "error", "{body}");
+    assert_eq!(body["error"]["type"], "invalid_request_error", "{body}");
+    assert_eq!(body["error"]["code"], "missing_model", "{body}");
+
+    let server_tools = client()
+        .post(proxy.url("/v1/messages"))
+        .bearer_auth("bridge-secret")
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "mcp_servers": {"github": {}},
+            "messages": []
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(server_tools.status(), 400);
+    let body: serde_json::Value = server_tools.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "server_tools_unsupported", "{body}");
+
+    let metrics = metrics(&proxy).await;
+    assert!(
+        metrics.contains(r#"nimproxy_tool_type_total{type="server_rejected"} 1"#),
+        "the rejected server tool counted once: {metrics}"
+    );
+    // The two bridge-rejected 400s add no upstream traffic; the rideout hit
+    // three times and the re-shape-mapped 400 exactly once.
+    assert_eq!(
+        mock.state.hit_count(),
+        4,
+        "400 rejections stay off the pipeline"
+    );
+}
+
+/// A reasoning model's `reasoning_content` surfaces as a leading `thinking`
+/// block carrying a synthetic `nimthinking_` signature; an oversized budget
+/// is a typed 400 without the interleaved beta and a 200 with it.
+#[tokio::test]
+async fn messages_bridge_thinking_block_from_reasoning_content() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+
+    let completion = serde_json::json!({
+        "id": "mock-r", "object": "chat.completion",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "reasoning_content": "  why 42  ",
+                "content": "42"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 5}
+    });
+
+    // 200 path: valid thinking params, reasoning content in the response.
+    mock.state.push(support::Behavior::ExactResponse {
+        content_type: "application/json".to_owned(),
+        body: completion.to_string(),
+    });
+    let ok = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 4096,
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+            "messages": [{"role": "user", "content": "the answer"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200, "thinking request converts: {ok:?}");
+    let message: serde_json::Value = ok.json().await.unwrap();
+    let blocks = message["content"].as_array().expect("content");
+    assert_eq!(blocks.len(), 2, "thinking leads, then text: {message}");
+    assert_eq!(blocks[0]["type"], "thinking", "{message}");
+    assert_eq!(blocks[0]["thinking"], "why 42", "trimmed: {message}");
+    let signature = blocks[0]["signature"].as_str().expect("signature");
+    assert!(
+        signature.starts_with("nimthinking_"),
+        "the synthetic signature is advertised: {message}"
+    );
+    assert_eq!(blocks[1], serde_json::json!({"type": "text", "text": "42"}));
+    assert_eq!(message["stop_reason"], "end_turn", "{message}");
+
+    // 400 path: budget above max_tokens without the beta stays off the pipeline.
+    let rejected = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 1024,
+            "thinking": {"type": "enabled", "budget_tokens": 4096},
+            "messages": [{"role": "user", "content": "the answer"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected.status(),
+        400,
+        "budget >= max_tokens is a typed 400"
+    );
+    let body: serde_json::Value = rejected.json().await.unwrap();
+    assert_eq!(body["type"], "error", "{body}");
+    assert_eq!(body["error"]["type"], "invalid_request_error", "{body}");
+    assert_eq!(body["error"]["code"], "invalid_thinking", "{body}");
+
+    // Same request under the interleaved beta with tools offered: 200.
+    mock.state.push(support::Behavior::ExactResponse {
+        content_type: "application/json".to_owned(),
+        body: completion.to_string(),
+    });
+    let interleaved = client()
+        .post(proxy.url("/v1/messages"))
+        .header("anthropic-beta", "interleaved-thinking-2025-05-14")
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 1024,
+            "thinking": {"type": "enabled", "budget_tokens": 4096},
+            "tools": [{"name": "f"}],
+            "messages": [{"role": "user", "content": "the answer"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        interleaved.status(),
+        200,
+        "the beta licenses budget >= max_tokens with tools"
+    );
+
+    assert_eq!(mock.state.hit_count(), 2, "the 400 stays off the pipeline");
+}
+
+/// T6: a `stream: true` bridge request rides the pacing loop; control
+/// frames land before the stream commits (retained byte-exact for the
+/// replay contract), the client then gets the translated Anthropic event
+/// sequence — and the chat stream path stays OpenAI bytes byte-exact.
+#[tokio::test]
+async fn messages_bridge_stream_translates_upstream_chunks_to_anthropic_events() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+
+    // One immediate 429 before the first event: the retry control frame
+    // (`: retrying`) must reach the client *pre-commit*, byte-exact.
+    mock.state.push(support::Behavior::RateLimited(0));
+
+    let resp = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 64,
+            "stream": true,
+            "messages": [{"role": "user", "content": "stream me"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "bridge stream is a 200 event stream");
+    assert_eq!(
+        resp.headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/event-stream")
+    );
+    let body = read_sse(resp).await;
+
+    // Pre-commit frames are proxy control comments only (the mock answers a
+    // 200 on attempt two, so `: connected` and `: retrying` precede the
+    // commit) — never an Anthropic event, and no heartbeat follows
+    // commitment.
+    let commit = body
+        .find("event: message_start")
+        .expect("stream commits to an Anthropic event");
+    let prefix = &body[..commit];
+    for line in prefix.split('\n') {
+        let trimmed = line.trim_end_matches('\r');
+        assert!(
+            trimmed.is_empty() || trimmed.starts_with(':'),
+            "only control comments may precede commitment: {body}"
+        );
+        assert!(
+            !trimmed.contains("event:"),
+            "no Anthropic events pre-commit: {body}"
+        );
+    }
+    let after_commit = &body[commit..];
+    assert!(
+        !after_commit.contains("heartbeat"),
+        "heartbeats never follow commitment: {body}"
+    );
+    assert!(
+        !after_commit.contains(": retrying"),
+        "dropped control frames never leak post-commit: {body}"
+    );
+
+    // The translated event order, end to end.
+    let order = [
+        "event: message_start",
+        "event: content_block_start",
+        "\"type\":\"text_delta\"",
+        "event: content_block_stop",
+        "event: message_delta",
+        "event: message_stop",
+    ];
+    let mut last = 0;
+    for marker in order {
+        let pos = after_commit
+            .find(marker)
+            .unwrap_or_else(|| panic!("missing {marker}: {body}"));
+        assert!(pos >= last, "{marker} out of order: {body}");
+        last = pos + marker.len();
+    }
+
+    assert!(
+        after_commit.contains(r#""model":"mock/model-a""#),
+        "the request model echoes into message_start: {body}"
+    );
+    let delta = after_commit
+        .rfind(r#""text":" world""#)
+        .expect("the second text delta lands");
+    assert!(
+        after_commit[delta..].contains(r#""stop_reason":"end_turn""#),
+        "stop maps to end_turn: {body}"
+    );
+    assert!(
+        after_commit[delta..].contains(r#""input_tokens":11"#)
+            && after_commit[delta..].contains(r#""output_tokens":2"#),
+        "observed usage rides message_delta: {body}"
+    );
+
+    // The chat stream path is untouched by T6: OpenAI bytes byte-exact.
+    let chat = read_sse(
+        client()
+            .post(proxy.url("/v1/chat/completions"))
+            .json(&chat_body("plain", true))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        chat.contains("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n"),
+        "chat stream stays OpenAI-wire: {chat}"
+    );
+    assert!(
+        !chat.contains("event: message_start"),
+        "the chat path never sees Anthropic events: {chat}"
+    );
+}
+
+/// T6: `tool_calls` deltas render as `tool_use` blocks with
+/// `input_json_delta` fragments; the caller echo lands on the offered tool;
+/// `finish_reason: tool_calls` maps to `stop_reason: tool_use`.
+#[tokio::test]
+async fn messages_bridge_stream_tool_calls_render_as_tool_use_blocks() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+
+    let resp = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 64,
+            "stream": true,
+            "tools": [{"type": "bash_20250124", "name": "get_weather"}],
+            "messages": [{"role": "user", "content": "weather?"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "bridge tool stream is a 200");
+    let body = read_sse(resp).await;
+
+    let commit = body
+        .find("event: message_start")
+        .expect("stream commits: {body}");
+    let start = &body[commit..];
+    let block_start = start
+        .find("event: content_block_start")
+        .expect("a content block opens: {body}");
+    let block = &start[block_start..];
+    assert!(
+        block.contains(r#""type":"tool_use""#)
+            && block.contains(r#""name":"get_weather""#)
+            && block.contains(r#""id":"toolu_stream_0""#),
+        "the tool_use block carries the upstream name: {body}"
+    );
+    assert!(
+        block.contains(r#""caller":{"type":"direct"}"#),
+        "the offered client tool echoes its direct caller: {body}"
+    );
+    assert!(
+        start.contains(r#""type":"input_json_delta""#),
+        "tool argument fragments stream as input_json_delta: {body}"
+    );
+    assert!(
+        start.contains(r#""partial_json":"{\"city\"""#),
+        "the first argument fragment lands: {body}"
+    );
+    assert!(
+        start.contains(r#""partial_json":":\"Paris\"""#),
+        "the second argument fragment lands: {body}"
+    );
+    assert!(
+        start.contains(r#""stop_reason":"tool_use""#),
+        "finish_reason tool_calls maps to stop_reason tool_use: {body}"
+    );
+    assert!(
+        start.contains("event: message_stop"),
+        "the translated stream terminates: {body}"
+    );
+}
+
+/// T6: when the upstream breaks mid-response after `message_start`, the
+/// error surfaces as an in-stream Anthropic `error` event — never a raw
+/// OpenAI proxy envelope.
+#[tokio::test]
+async fn messages_bridge_stream_mid_stream_upstream_error_is_in_stream_event() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    mock.state.push(support::Behavior::StreamBreak);
+
+    let resp = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 64,
+            "stream": true,
+            "messages": [{"role": "user", "content": "break me"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "the stream is open when it breaks");
+    let body = read_sse(resp).await;
+
+    let commit = body
+        .find("event: message_start")
+        .unwrap_or_else(|| panic!("the stream committed: {body}"));
+    let after = &body[commit..];
+    let err = after
+        .find("event: error")
+        .unwrap_or_else(|| panic!("the mid-stream error is an Anthropic error event: {body}"));
+    assert!(
+        after[err..].contains(r#""type":"upstream_error""#)
+            && after[err..].contains(r#""code":"upstream_unavailable""#),
+        "the error event carries the upstream code: {body}"
+    );
+    assert!(
+        !after[err..].contains("proxy_error"),
+        "no raw OpenAI proxy envelope after commitment: {body}"
+    );
+    assert!(
+        !after[err..].contains("event: message_stop"),
+        "an in-stream error is terminal: no message_stop follows: {body}"
+    );
+}
+
+/// T6: a stream that never commits to an Anthropic event replays the
+/// upstream bytes untouched — the pre-T5 passthrough contract.
+#[tokio::test]
+async fn messages_bridge_uncommitted_stream_replays_upstream_bytes() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    // A fixed upstream SSE body whose only event is an empty `choices`
+    // chunk: the translator never commits to an Anthropic event, so the
+    // stream terminates uncommitted and `finish()` replays the retained
+    // bytes byte-exact.
+    mock.state.push(support::Behavior::ExactResponse {
+        content_type: "text/event-stream".to_owned(),
+        body: "data: {\"choices\":[]}\n\n".to_owned(),
+    });
+
+    let resp = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "mock/model-a",
+            "max_tokens": 64,
+            "stream": true,
+            "messages": [{"role": "user", "content": "hang me"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    let body = read_sse(resp).await;
+
+    assert!(
+        !body.contains("event: message_start"),
+        "an empty-choices chunk never commits: {body}"
+    );
+    assert!(
+        body.contains(": connected\n\n"),
+        "the pre-commit control frame replays untouched: {body}"
+    );
+    assert!(
+        body.contains("data: {\"choices\":[]}\n\n"),
+        "the uncommitted stream replays upstream bytes byte-exact: {body}"
+    );
+}
+
+/// T6: stall / deadline / broken-stream error frames all route through the
+/// translator; before commitment the OpenAI proxy envelope is emitted.
+#[tokio::test]
+async fn messages_bridge_stall_before_commit_is_openai_envelope() {
+    let mock = start_mock().await;
+    let proxy = start_proxy_with(
+        &mock.url,
+        support::StoreOpts {
+            stream_idle_secs: 1,
+            ..Default::default()
+        },
+        &[],
+    )
+    .await;
+
+    // Hang is uncommitted (no data events), so a stall surfaces in the
+    // OpenAI envelope — not the Anthropic in-stream error.
+    mock.state.push(support::Behavior::Hang);
+    let resp = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&serde_json::json!({
+            "model": "model-a",
+            "max_tokens": 64,
+            "stream": true,
+            "messages": [{"role": "user", "content": "stall me"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    let body = read_sse(resp).await;
+    assert!(
+        body.contains("\"proxy_error\""),
+        "an uncommitted stall stays on the OpenAI envelope: {body}"
+    );
+    assert!(
+        body.contains("upstream_unavailable") || body.contains("stalled"),
+        "the stall reason lands: {body}"
     );
 }
 
@@ -4291,6 +5004,54 @@ async fn dashboard_history_settings_markup() {
     assert!(settings_js.contains("/api/settings/history"));
     assert!(!settings_js.contains("Pricing &amp; history"));
     assert!(!settings_js.contains("const SLO = 0.999"));
+}
+
+/// The dashboard's server tab carries the web_search provider card (T10):
+/// the four fields plus the `/api/settings/web-search` endpoint, catalog-owned.
+#[tokio::test]
+async fn dashboard_web_search_settings_markup() {
+    let mock = start_mock().await;
+    let proxy = start_proxy(&mock.url, &[]).await;
+    let cookie = login(&proxy).await;
+
+    let settings_js = client()
+        .get(proxy.url("/assets/operator/settings.js"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = client()
+        .get(proxy.url("/assets/operator/locales/en-US.json"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    for field in [
+        "sv-search-base",
+        "sv-search-format",
+        "sv-search-max",
+        "sv-search-timeout",
+        "save-search",
+        "search-err",
+        "/api/settings/web-search",
+    ] {
+        assert!(settings_js.contains(field), "settings.js carries {field}");
+    }
+    assert!(settings_js.contains(r#"data-i18n="settings.server.search.heading""#));
+    assert_eq!(
+        catalog["messages"]["settings.server.search.heading"],
+        "Web search provider"
+    );
+    assert_eq!(
+        catalog["messages"]["settings.server.search.format_rss"],
+        "rss"
+    );
 }
 
 #[tokio::test]
@@ -6239,6 +7000,15 @@ async fn locale_preferences_are_fail_closed() {
         .as_object_mut()
         .unwrap()
         .insert("models_ttl_secs".into(), serde_json::json!(600));
+    store.as_object_mut().unwrap().insert(
+        "web_search".into(),
+        serde_json::json!({
+            "base_url": "https://www.bing.com/search",
+            "format": "rss",
+            "max_results": 5,
+            "timeout_secs": 30
+        }),
+    );
     std::fs::write(
         data_dir.join("config.json"),
         serde_json::to_vec_pretty(&store).unwrap(),
@@ -8703,5 +9473,366 @@ async fn health_probe_flag_reports_liveness() {
     assert!(
         !run_health("1".into()).success(),
         "--health exits non-zero against a dead port"
+    );
+}
+// ---------------------------------------------------------------------------
+// T10: in-gateway `web_search` executor — two-mock harness (scriptable NIM
+// chat mock + scriptable search-provider mock), so the execute-then-resend
+// loop runs against controllable providers with no live web access.
+// ---------------------------------------------------------------------------
+
+/// The web_search tool offer; `max_uses` and `user_location` are the
+/// executor's per-request caps, folded into every executed query.
+fn web_search_offer(
+    max_uses: Option<u32>,
+    user_location: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut offer = serde_json::json!({ "type": "web_search_20250305" });
+    if let Some(uses) = max_uses {
+        offer["max_uses"] = serde_json::json!(uses);
+    }
+    if let Some(location) = user_location {
+        offer["user_location"] = location;
+    }
+    serde_json::json!({
+        "model": "mock/model-a",
+        "max_tokens": 64,
+        "tools": [offer],
+        "messages": [{"role": "user", "content": "what is nim-proxy?"}]
+    })
+}
+
+async fn web_search_proxy(
+    mock: &support::MockNim,
+    search: &support::MockSearch,
+    opts: StoreOpts,
+) -> support::Proxy {
+    start_proxy_with(
+        &mock.url,
+        StoreOpts {
+            web_search_base_url: Some(search.url.clone()),
+            web_search_format: Some("json".into()),
+            ..opts
+        },
+        &[],
+    )
+    .await
+}
+
+fn web_search_blocks(message: &serde_json::Value) -> Vec<&serde_json::Value> {
+    message["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|block| block["type"] == "web_search_tool_result")
+        .collect()
+}
+
+/// Happy path: one upstream `tool_calls` round, one provider fetch, the
+/// result folded back as a tool message, then the final text stop. The
+/// outward `web_search_tool_result` block rides the content array with the
+/// official `encrypted_content` shape, and the accumulated usage reports
+/// the provider request under `server_tool_use`.
+#[tokio::test]
+async fn messages_web_search_executor_runs_and_folds_results() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    mock.state.push(Behavior::WebSearch);
+    mock.state.push(Behavior::WebSearch);
+    let proxy = web_search_proxy(&mock, &search, StoreOpts::default()).await;
+
+    let body = web_search_offer(None, Some(serde_json::json!({ "city": "Berlin" })));
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "executed search is a 200: {response:?}"
+    );
+    let message: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(message["stop_reason"], "end_turn", "{message}");
+
+    let content = message["content"].as_array().unwrap();
+    assert!(
+        content
+            .iter()
+            .any(|block| block["type"] == "text" && block["text"] == "found it"),
+        "the terminal text round rides the content array: {content:?}"
+    );
+    let results = web_search_blocks(&message);
+    assert_eq!(results.len(), 1, "exactly one executed search: {message}");
+    let block = results[0];
+    assert_eq!(block["tool_use_id"], "call_ws_1", "{block}");
+    assert!(
+        !block
+            .get("is_error")
+            .is_some_and(|e| e.as_bool().unwrap_or(false)),
+        "{block:?}"
+    );
+    let items = block["content"].as_array().unwrap();
+    assert_eq!(
+        items.len(),
+        3,
+        "the provider's 3 results ride outward: {block:?}"
+    );
+    assert_eq!(
+        items[0]["url"], "https://search.example/nim-proxy Berlin/0",
+        "user_location folded into the query: {items:?}"
+    );
+    assert!(
+        items[0]["encrypted_content"]
+            .as_str()
+            .is_some_and(|blob| blob.starts_with("nimsearch_")),
+        "official opaque blob shape: {items:?}"
+    );
+
+    assert_eq!(
+        message["usage"],
+        serde_json::json!({
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "server_tool_use": {"web_search_requests": 1}
+        }),
+        "usage accumulates both rounds plus the provider call: {message}"
+    );
+
+    assert_eq!(mock.state.hit_count(), 2, "two upstream rounds");
+    assert_eq!(search.state.hit_count(), 1, "one provider fetch");
+    let (query, params) = &search.state.hits.lock().unwrap()[0];
+    assert_eq!(query, "nim-proxy Berlin", "{params}");
+}
+
+/// Provider 500: the executor never fails the request — the error
+/// surfaces as a typed `web_search_tool_result` error block and the loop
+/// continues to the final round.
+#[tokio::test]
+async fn messages_web_search_provider_error_is_a_typed_block() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    mock.state.push(Behavior::WebSearch);
+    mock.state.push(Behavior::WebSearch);
+    search.state.push(SearchBehavior::Error);
+    let proxy = web_search_proxy(&mock, &search, StoreOpts::default()).await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&web_search_offer(None, None))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "a down provider is not a 502: {response:?}"
+    );
+    let message: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(message["stop_reason"], "end_turn", "{message}");
+    let block = &web_search_blocks(&message)[0];
+    assert_eq!(block["is_error"], true, "{block:?}");
+    let error = &block["content"][0];
+    assert_eq!(error["type"], "web_search_tool_result_error", "{block:?}");
+    assert_eq!(error["error_code"], "search_unavailable", "{block:?}");
+    assert_eq!(
+        message["usage"]["server_tool_use"]["web_search_requests"], 1,
+        "the failed provider attempt still counts: {message}"
+    );
+    assert_eq!(search.state.hit_count(), 1, "one failed provider fetch");
+}
+
+/// Provider timeout: the per-request `timeout_secs` bounds the fetch; a
+/// stalling provider yields the same clean `search_unavailable` block.
+#[tokio::test]
+async fn messages_web_search_provider_timeout_is_clean() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    mock.state.push(Behavior::WebSearch);
+    mock.state.push(Behavior::WebSearch);
+    search.state.push(SearchBehavior::Delay(3));
+    let proxy = web_search_proxy(
+        &mock,
+        &search,
+        StoreOpts {
+            web_search_timeout_secs: Some(1),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let started = std::time::Instant::now();
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&web_search_offer(None, None))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "timeout stays inside the loop: {response:?}"
+    );
+    let message: serde_json::Value = response.json().await.unwrap();
+    let block = &web_search_blocks(&message)[0];
+    assert_eq!(block["is_error"], true, "{block:?}");
+    assert_eq!(
+        block["content"][0]["error_code"], "search_unavailable",
+        "{block:?}"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "the request did not wait out the stalling provider"
+    );
+    assert_eq!(
+        search.state.hit_count(),
+        1,
+        "the stalling fetch was attempted"
+    );
+}
+
+/// Result count is bounded by config: a provider with 7 results yields
+/// `max_results` outward items.
+#[tokio::test]
+async fn messages_web_search_results_bounded_by_config() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    mock.state.push(Behavior::WebSearch);
+    mock.state.push(Behavior::WebSearch);
+    search.state.push(SearchBehavior::Results { count: 7 });
+    let proxy = web_search_proxy(
+        &mock,
+        &search,
+        StoreOpts {
+            web_search_max_results: Some(2),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&web_search_offer(None, None))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let message: serde_json::Value = response.json().await.unwrap();
+    let items = web_search_blocks(&message)[0]["content"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        items.len(),
+        2,
+        "max_results caps the outward items: {message}"
+    );
+    assert_eq!(
+        items[0]["url"], "https://search.example/nim-proxy/0",
+        "{items:?}"
+    );
+    assert_eq!(
+        items[1]["url"], "https://search.example/nim-proxy/1",
+        "{items:?}"
+    );
+}
+
+/// The iteration cap: a model that keeps asking for more searches stops
+/// at the bound, with the typed cap block and the accumulated usage
+/// instead of a silent cut-off.
+#[tokio::test]
+async fn messages_web_search_iteration_cap_surfaces_typed_block() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    for _ in 0..4 {
+        mock.state.push(Behavior::WebSearchAlways);
+    }
+    let proxy = web_search_proxy(&mock, &search, StoreOpts::default()).await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&web_search_offer(None, None))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "the cap is a clean stop: {response:?}"
+    );
+    let message: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(message["stop_reason"], "tool_use", "{message}");
+    let content = message["content"].as_array().unwrap();
+    let cap = content
+        .iter()
+        .find(|block| block["type"] == "tool_result" && block["is_error"] == true)
+        .expect("the iteration cap block");
+    assert_eq!(
+        cap["content"][0]["error_code"], "max_iterations_exceeded",
+        "{cap:?}"
+    );
+    let executed = web_search_blocks(&message);
+    assert_eq!(
+        executed.len(),
+        4,
+        "every executed round's result rides outward: {message}"
+    );
+    assert_eq!(
+        message["usage"],
+        serde_json::json!({
+            "input_tokens": 16,
+            "output_tokens": 8,
+            "server_tool_use": {"web_search_requests": 4}
+        }),
+        "usage spans all four rounds: {message}"
+    );
+    assert_eq!(mock.state.hit_count(), 4, "four upstream rounds");
+    assert_eq!(search.state.hit_count(), 4, "four provider fetches");
+}
+
+/// Per-call `max_uses`: the cap is checked before any I/O, so the later
+/// rounds' searches never reach the provider and the results are typed
+/// `max_uses_exceeded` blocks.
+#[tokio::test]
+async fn messages_web_search_max_uses_stops_provider_calls() {
+    let mock = start_mock().await;
+    let search = start_search_mock().await;
+    for _ in 0..4 {
+        mock.state.push(Behavior::WebSearchAlways);
+    }
+    let proxy = web_search_proxy(&mock, &search, StoreOpts::default()).await;
+
+    let response = client()
+        .post(proxy.url("/v1/messages"))
+        .json(&web_search_offer(Some(1), None))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{response:?}");
+    let message: serde_json::Value = response.json().await.unwrap();
+    let blocks = web_search_blocks(&message);
+    assert_eq!(blocks.len(), 4, "{message}");
+    assert!(
+        !blocks[0]
+            .get("is_error")
+            .is_some_and(|e| e.as_bool().unwrap_or(false)),
+        "round one executed: {:?}",
+        blocks[0]
+    );
+    for later in &blocks[1..] {
+        assert_eq!(later["is_error"], true, "{later:?}");
+        assert_eq!(
+            later["content"][0]["error_code"], "max_uses_exceeded",
+            "{later:?}"
+        );
+    }
+    assert_eq!(
+        search.state.hit_count(),
+        1,
+        "only round one reached the provider"
+    );
+    assert_eq!(
+        message["usage"]["server_tool_use"]["web_search_requests"], 1,
+        "the capped rounds made no provider requests: {message}"
     );
 }

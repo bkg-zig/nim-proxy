@@ -15,7 +15,7 @@ module are test-only descriptive metadata and cannot dispatch a request.
 `probe_path` is a concrete fixture-backed request path. This distinction is
 load-bearing for `/v1/{*path}` and future parameterized routes.
 
-The current router has 40 method/path contracts, including ten presentation
+The current router has 42 method/path contracts, including ten presentation
 asset routes. A
 superuser has no exclusive route: it has admin endpoint power plus the
 undeletable/undemotable account invariant. `OperatorSuperuser` exists so a
@@ -90,7 +90,8 @@ not a second copy here.
 | `GET /setup` | First operator | Public | Pre-setup | None | None | HTML | Post-setup bare 404 | None | Setup wizard | No | B, M |
 | `POST /setup` | First operator | Public | Pre-setup | None; shared pre-auth throttle; first complete claim wins | JSON or form URL encoded | JSON + session cookie, or native redirect + session cookie | `weak_password`, `invalid_config`, `setup_complete`, `throttled` | Success creates config bytes and sets a session cookie; throttled requests stop before PBKDF2 and leave config unchanged | Setup wizard finish | Yes, explicit no security | B, M |
 | `POST /setup/validate-key` | First operator | Public | Pre-setup | None; pre-auth throttle | JSON | JSON | `invalid_base_url`, `throttled`, `setup_complete` | Success makes one upstream call; config unchanged | Setup wizard key step | Yes, explicit no security | B, M |
-| `ANY /v1/{*path}` (`POST /v1/chat/completions` probe) | OpenAI-compatible client | Client boundary: keyed private or explicitly open trusted-network mode | Post-setup | Client bearer in keyed mode; none in open mode | Upstream-owned bytes | Upstream content type or locally framed SSE | `setup_required`, `unauthorized`, `invalid_deadline`, `overloaded`, transport codes; `race_failed` for enabled chat races | Upstream calls; enabled racing sends the configured number of copies preserving the client's model; config unchanged | External agent harness | No: upstream owns schema | B, C, M, `tests/racing.rs` |
+| `ANY /v1/{*path}` (`POST /v1/chat/completions` probe) | OpenAI-compatible client | Client boundary: keyed private or explicitly open trusted-network mode | Post-setup | Client bearer in keyed mode; none in open mode | Upstream-owned bytes | Upstream content type or locally framed SSE | `setup_required`, `unauthorized`, `invalid_deadline`, `overloaded`, transport codes | Success makes one upstream call; config unchanged | External agent harness | No: upstream owns schema | B, C, M |
+| `POST /v1/messages` | Anthropic-compatible client | Client boundary: keyed private or explicitly open trusted-network mode | Post-setup | Client bearer in keyed mode; none in open mode | Locally owned Anthropic Messages JSON (`messages`, `system`, `tools`, `tool_choice`, `thinking`, `max_tokens`) | Locally owned Anthropic message JSON, or — until the M2 translator lands — locally framed upstream OpenAI SSE (`text/event-stream`) | `setup_required`, `unauthorized`, `invalid_deadline`, `overloaded`, typed 400 for unsupported server tools; upstream 4xx/5xx re-shape-mapped into the Anthropic error envelope | Success runs the full pipeline (model permit, slot, retry/failover, heartbeats) against one upstream `POST /v1/chat/completions` call; config unchanged | Anthropic-native agent harness | Yes: adds the `createAnthropicMessage` operation now; the `anthropicSSEStream` operation lands with the M2 SSE translator (additions only; see `docs/plans/anthropic-messages-bridge.md`) | B, C, M |
 
 ## Boundary ownership
 
@@ -121,9 +122,14 @@ without rewriting bytes. See
 [model racing](model-racing.md) for selection, cancellation and observation
 boundaries; the four racing operations have no Dashboard caller.
 
-Generated OpenAPI describes 19 `/api` operations and two setup POST
-operations. The locale bootstrap is public with explicit `security: []`; the
-other 18 `/api` operations inherit operator authentication. HTML/form,
+Generated OpenAPI describes 20 `/api` operations, two setup POST
+operations, and the Messages-bridge `createAnthropicMessage` operation,
+whose `text/event-stream` content references the `anthropicSSEStream`
+string schema (raw upstream bytes until commitment, then translated
+Anthropic events). The locale bootstrap is
+public with explicit `security: []`; the other 19 `/api` operations inherit
+operator authentication; the bridge names its `client_key` scheme explicitly
+instead of inheriting. HTML/form,
 presentation assets, health, metrics, and `/v1`
 omissions are explicit
 decisions. The generated-file authority and error schema remain in
