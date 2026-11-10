@@ -15,7 +15,7 @@ module are test-only descriptive metadata and cannot dispatch a request.
 `probe_path` is a concrete fixture-backed request path. This distinction is
 load-bearing for `/v1/{*path}` and future parameterized routes.
 
-The current router has 41 method/path contracts, including ten presentation
+The current router has 42 method/path contracts, including ten presentation
 asset routes. A
 superuser has no exclusive route: it has admin endpoint power plus the
 undeletable/undemotable account invariant. `OperatorSuperuser` exists so a
@@ -122,12 +122,12 @@ without rewriting bytes. See
 [model racing](model-racing.md) for selection, cancellation and observation
 boundaries; the four racing operations have no Dashboard caller.
 
-Generated OpenAPI describes 19 `/api` operations, two setup POST
+Generated OpenAPI describes 20 `/api` operations, two setup POST
 operations, and the Messages-bridge `createAnthropicMessage` operation,
 whose `text/event-stream` content references the `anthropicSSEStream`
 string schema (raw upstream bytes until commitment, then translated
 Anthropic events). The locale bootstrap is
-public with explicit `security: []`; the other 18 `/api` operations inherit
+public with explicit `security: []`; the other 19 `/api` operations inherit
 operator authentication; the bridge names its `client_key` scheme explicitly
 instead of inheriting. HTML/form,
 presentation assets, health, metrics, and `/v1`

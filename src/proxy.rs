@@ -1155,6 +1155,8 @@ async fn read_race_chunk(
             .await
             .map_err(|_| ())
     }
+}
+
 /// The Anthropic Messages bridge: `POST /v1/messages` converts to the chat
 /// payload, funnels through the exact same pipeline as the OpenAI-wire
 /// surface, and converts the response back — or re-shape-maps a non-2xx

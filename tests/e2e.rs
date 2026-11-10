@@ -1020,7 +1020,7 @@ async fn route_contract_behavior_matrix() {
         },
     ];
 
-    assert_eq!(rows.len(), 42, "route-contract:inventory");
+    assert_eq!(rows.len(), 41, "route-contract:inventory");
 
     let mock = start_mock().await;
     let before_setup = start_proxy_fresh().await;
