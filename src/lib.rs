@@ -322,6 +322,7 @@ async fn api_dashboard(
 )]
 async fn api_dashboard_now(
     State(state): State<Arc<AppState>>,
+    Extension(Identity(username)): Extension<Identity>,
 ) -> axum::Json<api::DashboardNowResponse> {
     let config = dashboard_config_snapshot(&state.store, &state.config_revision);
     let pool = state.pool();
@@ -342,6 +343,17 @@ async fn api_dashboard_now(
         rpms: pool.rpms(),
         sampled_at: now,
         slo_target_percent: config.slo_target_percent,
+        role: state
+            .store
+            .lock()
+            .unwrap()
+            .user(&username)
+            .map(|u| match u.role {
+                Role::Superuser => "superuser".to_owned(),
+                Role::Admin => "admin".to_owned(),
+                Role::User => "user".to_owned(),
+            })
+            .unwrap_or_else(|| "user".to_owned()),
         started: state.started,
         tail: current.tail,
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -765,9 +777,9 @@ pub async fn run() {
     let control_plane = Router::new()
         .route(routes::API_DASHBOARD, get(api_dashboard))
         .route(routes::API_DASHBOARD_NOW, get(api_dashboard_now))
-        .route("/api/models", get(proxy::api_models))
-        .route("/api/queue", get(api_queue))
-        .route("/api/queue/terminate", post(api_queue_terminate))
+        .route(routes::API_MODELS, get(proxy::api_models))
+        .route(routes::API_QUEUE, get(api_queue))
+        .route(routes::API_QUEUE_TERMINATE, post(api_queue_terminate))
         .route(routes::API_CONFIG, get(settings::api_config))
         .route(routes::API_SETTINGS_NIM_KEYS, post(settings::nim_keys))
         .route(routes::API_SETTINGS_CLIENTS, post(settings::clients))

@@ -730,6 +730,7 @@
     }
   ],
   "retention_days": 30,
+  "role": "superuser",
   "rpms": [
     40,
     40

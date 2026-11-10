@@ -1147,7 +1147,7 @@ async fn buffered(
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!(lane = slot.lane, error = %e, "upstream connection error, retrying");
-                    bench(&slot, "connect", Duration::from_secs(5));
+                    enter_cooldown(&slot, "connect", Duration::from_secs(5));
                     continue;
                 }
             };
@@ -1159,13 +1159,14 @@ async fn buffered(
                 // key capacity on a failover that cannot help.
                 let detail = resp.text().await.unwrap_or_default();
                 if governor::is_worker_exhausted(&detail) {
-                    state
-                        .governor
-                        .note_exhausted(&ctx.model, cfg.governor.overrides.get(&ctx.model).copied());
+                    state.governor.note_exhausted(
+                        &ctx.model,
+                        cfg.governor.overrides.get(&ctx.model).copied(),
+                    );
                     continue; // permit drops here; re-admission waits out the drain
                 }
                 tracing::info!(lane = slot.lane, %status, ?backoff, "lane benched, retrying");
-                bench(&slot, status.as_str(), backoff);
+                enter_cooldown(&slot, status.as_str(), backoff);
                 continue;
             }
             histogram!("nimproxy_upstream_seconds", "model" => ctx.model.clone())

@@ -25,6 +25,9 @@ pub const API_PREFIX: &str = "/api";
 pub const API_LOCALE_BOOTSTRAP: &str = "/locale-bootstrap";
 pub const API_DASHBOARD: &str = "/dashboard";
 pub const API_DASHBOARD_NOW: &str = "/dashboard/now";
+pub const API_MODELS: &str = "/models";
+pub const API_QUEUE: &str = "/queue";
+pub const API_QUEUE_TERMINATE: &str = "/queue/terminate";
 pub const API_CONFIG: &str = "/config";
 pub const API_SETTINGS_NIM_KEYS: &str = "/settings/nim-keys";
 pub const API_SETTINGS_CLIENTS: &str = "/settings/clients";
@@ -394,6 +397,30 @@ const ROUTES: &[RouteContract] = &[
         probe_path: SETUP_VALIDATE_KEY,
     },
     RouteContract {
+        access: Access::OperatorAny,
+        method: "GET",
+        openapi: false,
+        path: "/api/models",
+        phase: Phase::PostSetup,
+        probe_path: "/api/models",
+    },
+    RouteContract {
+        access: Access::OperatorAdmin,
+        method: "GET",
+        openapi: false,
+        path: "/api/queue",
+        phase: Phase::PostSetup,
+        probe_path: "/api/queue",
+    },
+    RouteContract {
+        access: Access::OperatorAdmin,
+        method: "POST",
+        openapi: false,
+        path: "/api/queue/terminate",
+        phase: Phase::PostSetup,
+        probe_path: "/api/queue/terminate",
+    },
+    RouteContract {
         access: Access::Client,
         method: "ANY",
         openapi: false,
@@ -460,7 +487,7 @@ mod tests {
             serde_json::from_str(&crate::api::openapi_json()).expect("generated OpenAPI JSON");
         let paths = spec["paths"].as_object().expect("OpenAPI paths");
 
-        assert_eq!(ROUTES.len(), 40, "route-contract:inventory");
+        assert_eq!(ROUTES.len(), 43, "route-contract:inventory");
         assert_eq!(
             ROUTES
                 .iter()
@@ -507,7 +534,7 @@ mod tests {
                 .iter()
                 .filter(|route| route.phase == Phase::PostSetup)
                 .count(),
-            27,
+            30,
             "route-contract:phase: operator, operator assets, and client routes"
         );
         assert!(

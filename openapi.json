@@ -1578,6 +1578,7 @@
           "metrics",
           "retention_days",
           "rpms",
+          "role",
           "sampled_at",
           "slo_target_percent",
           "started",
@@ -1638,6 +1639,10 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "role": {
+            "type": "string",
+            "description": "The session user's role (`superuser`, `admin`, or `user`)."
           },
           "rpms": {
             "type": "array",

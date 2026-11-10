@@ -2828,6 +2828,10 @@ async fn observation_preserves_upstream_bytes() {
             .lines()
             .any(|line| line.starts_with("nimproxy_reasoning_tokens_total{")),
         "invalid reasoning must be omitted instead of accepted by the old side-band reader"
+    );
+}
+
+#[tokio::test]
 async fn api_models_requires_login_and_rides_the_shared_catalog_cache() {
     let mock = start_mock().await;
     let proxy = start_proxy_with(&mock.url, keyed("alice", "sekrit"), &[]).await;
@@ -2837,7 +2841,11 @@ async fn api_models_requires_login_and_rides_the_shared_catalog_cache() {
     assert_eq!(unauth.status(), 401);
 
     let cookie = login(&proxy).await;
-    let get = || client().get(proxy.url("/api/models")).header("cookie", &cookie);
+    let get = || {
+        client()
+            .get(proxy.url("/api/models"))
+            .header("cookie", &cookie)
+    };
 
     // Cold cache: the first dashboard fetch triggers one upstream call and
     // reports the cache metadata.
@@ -8762,7 +8770,7 @@ async fn health_probe_flag_reports_liveness() {
         run_health(proxy.port.to_string()).success(),
         "--health exits 0 against a healthy proxy"
     );
-assert!(
+    assert!(
         !run_health("1".into()).success(),
         "--health exits non-zero against a dead port"
     );
@@ -8800,7 +8808,9 @@ async fn queue_lists_inflight_requests_and_terminates_them_with_code_91() {
         tokio::spawn(async move {
             let mut stream = stream;
             while let Some(Ok(chunk)) = stream.next().await {
-                out.lock().unwrap().push_str(&String::from_utf8_lossy(&chunk));
+                out.lock()
+                    .unwrap()
+                    .push_str(&String::from_utf8_lossy(&chunk));
             }
         });
     }
@@ -8924,7 +8934,10 @@ async fn queue_is_admin_only_and_now_reports_the_role() {
     assert_eq!(get.status(), 200);
 
     assert_eq!(dashboard_now(&proxy, &user_cookie).await["role"], "user");
-    assert_eq!(dashboard_now(&proxy, &admin_cookie).await["role"], "superuser");
+    assert_eq!(
+        dashboard_now(&proxy, &admin_cookie).await["role"],
+        "superuser"
+    );
 }
 
 /// A buffered (non-streaming) request killed while waiting on upstream
@@ -8971,7 +8984,11 @@ async fn queue_terminates_buffered_requests_with_a_json_91() {
     assert_eq!(r.status(), 200);
 
     let resp = waiting.await.unwrap();
-    assert_eq!(resp.status(), 400, "buffered kill answers 400, not the 200-body");
+    assert_eq!(
+        resp.status(),
+        400,
+        "buffered kill answers 400, not the 200-body"
+    );
     let v: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(v["error"]["code"], "-91", "{v}");
     assert!(
