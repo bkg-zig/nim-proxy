@@ -275,6 +275,7 @@ contract is NVIDIA NIM's, and nim-proxy passes it through.
 | **Local self-host** | Keep the default loopback port publish; switch to **Open (no authentication)** in Settings if you don't want client keys. |
 | **VPS / bare metal** | A TLS-terminating reverse proxy (nginx/Caddy) in front; keep **API key required**. Set `TRUST_PROXY=true` so the session cookie is marked `Secure`. |
 | **PaaS (ECS / Railway / Fly)** | The platform edge terminates TLS. Set `TRUST_PROXY=true`. Complete the wizard as soon as the instance is reachable. |
+| **Cloudflare Containers** | One container behind a Worker (`nim-gate.eysho.info`), `/data` on an R2 FUSE mount. Parallel test deployment only while another instance shares its NIM keys — see [cloudflare/README.md](cloudflare/README.md). |
 
 **TLS is not built in** — passwords and keys must travel over HTTPS, so terminate TLS at a reverse proxy or platform edge for any exposed deployment. Additional hardening in place: a strict `Content-Security-Policy` and anti-framing/sniffing headers on all responses, a failed-login throttle, and an in-flight cap (`max_inflight`) that sheds floods with a 503.
 
