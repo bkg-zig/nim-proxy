@@ -85,6 +85,7 @@ page describes a conclusion, a plan describes the live state.
 | Page | One-liner |
 |---|---|
 | [deploy-docker](ops/deploy-docker.md) | Compose, volume, healthcheck, hardening flags |
+| [deploy-cloudflare](ops/deploy-cloudflare.md) | One container behind a Worker, R2 FUSE /data, FUSE/DNS gotchas |
 | [new-api-integration](ops/new-api-integration.md) | Separate ordinary/racing groups, disjoint active keys, transactional cutover and bounded real-route verification |
 | [configure-env](ops/configure-env.md) | Compose publishing, the 5 container env vars, Settings, and lockout recovery |
 | [sharing-with-friends](ops/sharing-with-friends.md) | Create-a-user multi-user setup, key etiquette, ToS positioning |

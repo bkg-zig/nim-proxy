@@ -1,0 +1,51 @@
+{
+  // nim-proxy as a single Cloudflare Container behind a Worker.
+  // Secrets (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for the R2 bucket)
+  // are set with `wrangler secret put` and are never stored in this file.
+  "name": "nim-proxy-cf",
+  "main": "src/index.js",
+  "workers_dev": true,
+  "compatibility_date": "2026-11-10",
+  "observability": {
+    "enabled": true
+  },
+  "containers": [
+    {
+      "class_name": "NimProxyContainer",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./Dockerfile",
+          "build_context": ".."
+        }
+      },
+      "observability": {
+        "enabled": true
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "NIM_PROXY",
+        "class_name": "NimProxyContainer"
+      }
+    ]
+  },
+  "exports": {
+    "NimProxyContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "routes": [
+    {
+      "pattern": "nim-gate.eysho.info",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "R2_BUCKET_NAME": "nim-proxy-data",
+    "R2_ACCOUNT_ID": "e70494ebc6ed1b13800289fbbb3a483b"
+  }
+}

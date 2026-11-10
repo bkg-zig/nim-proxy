@@ -6,6 +6,17 @@ description: Append-only record of ingests, decisions, and maintenance passes.
 
 # Log
 
+## [2026-11-10] runbook — Cloudflare Container deploy
+
+The [Cloudflare runbook](ops/deploy-cloudflare.md) records the single-container
+Worker deployment at `nim-gate.eysho.info` with R2 FUSE `/data`, including the
+two reproduced gotchas: `fs::hard_link` history creation fails on tigrisfs
+(seed `history-v1.jsonl` first), and `wrangler r2 object` needs `--remote`.
+The [deploy plan](../docs/plans/cloudflare-container-deploy.md) owns live
+evidence and the open owner checks (Settings save, SSE). The BKG instance
+remains production; the Cloudflare instance is a parallel test deployment
+that must not share active NIM keys with it.
+
 ## [2026-10-15] runbook — separate new-api ordinary and racing channels
 
 The [new-api runbook](ops/new-api-integration.md) records the verified two-group

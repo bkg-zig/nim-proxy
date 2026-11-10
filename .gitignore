@@ -1,5 +1,7 @@
 /target
 .env
 /data
+.wrangler/
+.helicon/
 __pycache__/
 .claude/
