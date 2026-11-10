@@ -14,6 +14,7 @@ mod proxy;
 mod racing;
 mod racing_api;
 mod racing_config;
+mod registry;
 mod routes;
 mod settings;
 
@@ -34,7 +35,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
@@ -43,7 +44,8 @@ use bytes::Bytes;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::sync::{watch, Mutex};
 
-use auth::Admin;
+use auth::{Admin, Identity};
+use config::Role;
 use dispatch::Dispatcher;
 use pool::{Pool, PoolHandle};
 
@@ -163,6 +165,8 @@ pub struct AppState {
     /// Per-model worker-concurrency gate (runtime state, settings in Config).
     pub governor: Arc<governor::Governor>,
     pub history: Arc<history::History>,
+    /// In-flight request queue: who asked for what, and how to stop it.
+    pub registry: Arc<registry::RequestRegistry>,
     /// Shared metrics registry rendered by both `/metrics` and dashboard-now.
     pub prometheus: PrometheusHandle,
     /// Monotonic settings generation for lightweight dashboard refreshes.
@@ -346,6 +350,7 @@ async fn api_dashboard(
 )]
 async fn api_dashboard_now(
     State(state): State<Arc<AppState>>,
+    Extension(Identity(username)): Extension<Identity>,
 ) -> axum::Json<api::DashboardNowResponse> {
     let config = dashboard_config_snapshot(&state.store, &state.config_revision);
     let pool = state.pool();
@@ -366,10 +371,117 @@ async fn api_dashboard_now(
         rpms: pool.rpms(),
         sampled_at: now,
         slo_target_percent: config.slo_target_percent,
+        role: state
+            .store
+            .lock()
+            .unwrap()
+            .user(&username)
+            .map(|u| match u.role {
+                Role::Superuser => "superuser".to_owned(),
+                Role::Admin => "admin".to_owned(),
+                Role::User => "user".to_owned(),
+            })
+            .unwrap_or_else(|| "user".to_owned()),
         started: state.started,
         tail: current.tail,
         version: env!("CARGO_PKG_VERSION").to_owned(),
     })
+}
+
+/// Gate the operator-queue surface. Permissions re-checked from the live
+/// store: a session whose user was deleted mid-flight gets a stale-session
+/// response, and any non-admin role is denied outright.
+fn operator_check(state: &AppState, username: &str) -> Result<(), Response> {
+    let role = state.store.lock().unwrap().user(username).map(|u| u.role);
+    match role {
+        Some(r) if r.is_admin() => Ok(()),
+        Some(_) => Err(json_error(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "request queue requires an admin session",
+        )),
+        None => Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "your user no longer exists",
+        )),
+    }
+}
+
+fn json_error(status: StatusCode, code: &str, message: impl Into<String>) -> Response {
+    (
+        status,
+        axum::Json(serde_json::json!({
+            "error": { "message": message.into(), "type": "proxy_error", "code": code }
+        })),
+    )
+        .into_response()
+}
+
+fn ok_json(v: serde_json::Value) -> Response {
+    axum::Json(v).into_response()
+}
+
+/// The request queue: every in-flight `/v1` request (client · model · path ·
+/// phase · age), admin-only. Metadata only — never request content.
+async fn api_queue(
+    State(state): State<Arc<AppState>>,
+    Extension(Identity(username)): Extension<Identity>,
+) -> Response {
+    if let Err(resp) = operator_check(&state, &username) {
+        return resp;
+    }
+    let now = unix_now();
+    let requests: Vec<serde_json::Value> = state
+        .registry
+        .snapshot()
+        .into_iter()
+        .map(|e| {
+            let age = e.started.elapsed().as_secs();
+            serde_json::json!({
+                "id": e.id,
+                "client": e.client,
+                "model": e.model,
+                "path": e.path,
+                "started_at": now.saturating_sub(age),
+                "age_s": age,
+                "phase": e.phase,
+            })
+        })
+        .collect();
+    ok_json(serde_json::json!({ "requests": requests }))
+}
+
+#[derive(serde::Deserialize)]
+struct TerminateReq {
+    id: u64,
+}
+
+/// Terminate one in-flight request; its client receives error code `-91`.
+/// The admin may kill any request, including their own.
+async fn api_queue_terminate(
+    State(state): State<Arc<AppState>>,
+    Extension(Identity(username)): Extension<Identity>,
+    axum::Json(req): axum::Json<TerminateReq>,
+) -> Response {
+    if let Err(resp) = operator_check(&state, &username) {
+        return resp;
+    }
+    if state.registry.terminate(req.id) {
+        metrics::counter!("nimproxy_terminated_total", "by" => username.clone()).increment(1);
+        tracing::info!(
+            request = req.id,
+            operator = %username,
+            "operator terminated an in-flight request (code -91)"
+        );
+        ok_json(serde_json::json!({ "ok": true }))
+    } else {
+        json_error(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            format!("no such in-flight request {}", req.id),
+        )
+    }
 }
 
 async fn metrics_text(State(state): State<Arc<AppState>>) -> String {
@@ -682,6 +794,7 @@ pub async fn run() {
         data_dir,
         setup_required: std::sync::atomic::AtomicBool::new(setup_required),
         cfg: RwLock::new(Arc::new(cfg)),
+        registry: Arc::new(registry::RequestRegistry::new()),
     });
 
     let dash = || async { page_response(presentation::Page::Dashboard) };
@@ -692,6 +805,9 @@ pub async fn run() {
     let control_plane = Router::new()
         .route(routes::API_DASHBOARD, get(api_dashboard))
         .route(routes::API_DASHBOARD_NOW, get(api_dashboard_now))
+        .route(routes::API_MODELS, get(proxy::api_models))
+        .route(routes::API_QUEUE, get(api_queue))
+        .route(routes::API_QUEUE_TERMINATE, post(api_queue_terminate))
         .route(routes::API_CONFIG, get(settings::api_config))
         .route(routes::API_SETTINGS_NIM_KEYS, post(settings::nim_keys))
         .route(routes::API_SETTINGS_CLIENTS, post(settings::clients))

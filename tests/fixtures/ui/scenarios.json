@@ -2932,6 +2932,7 @@
       }
     ],
     "retention_days": 30,
+    "role": "superuser",
     "rpms": [
       40,
       40
@@ -3719,6 +3720,7 @@
       }
     ],
     "retention_days": 30,
+    "role": "superuser",
     "rpms": [
       40
     ],
@@ -4505,6 +4507,7 @@
       }
     ],
     "retention_days": 30,
+    "role": "superuser",
     "rpms": [
       40,
       40
@@ -5292,6 +5295,7 @@
       }
     ],
     "retention_days": 30,
+    "role": "superuser",
     "rpms": [
       40,
       40

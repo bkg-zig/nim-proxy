@@ -469,6 +469,8 @@ pub struct DashboardNowResponse {
     pub metrics: Vec<MetricValue>,
     pub retention_days: u64,
     pub rpms: Vec<usize>,
+    /// The session user's role (`superuser`, `admin`, or `user`).
+    pub role: String,
     pub sampled_at: u64,
     pub slo_target_percent: f64,
     /// Unix time this process started.
@@ -1977,6 +1979,7 @@ mod tests {
             metrics,
             retention_days: 30,
             rpms: vec![40, 40],
+            role: "superuser".to_owned(),
             sampled_at: if changed {
                 1_700_007_200
             } else {
@@ -2967,6 +2970,7 @@ mod tests {
                 metrics: Vec::new(),
                 retention_days: 30,
                 rpms: vec![40],
+                role: "admin".to_owned(),
                 sampled_at: 0,
                 slo_target_percent: 99.9,
                 started: 0,
