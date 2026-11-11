@@ -1,0 +1,20 @@
+{
+  "name": "nim-proxy-r2",
+  "image": "docker.io/bkgzigh/nim-proxy:latest",
+  "port": 8000,
+  "env": {
+    "HOST": "0.0.0.0",
+    "PORT": "8000",
+    "DATA_DIR": "/data",
+    "TRUST_PROXY": "true",
+    "R2_ENABLED": "true",
+    "R2_BUCKET": "nim-proxy-state",
+    "R2_ENDPOINT": "https://<account>.r2.cloudflarestorage.com",
+    "R2_ACCESS_KEY_ID": "<r2-access-key-id>",
+    "R2_SECRET_ACCESS_KEY": "<r2-secret-access-key>"
+  },
+  "limits": {
+    "memory_mb": 1024,
+    "cpu_ms": 10000
+  }
+}

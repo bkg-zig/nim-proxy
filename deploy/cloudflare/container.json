@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.cloudflare.com/container/v1",
+  "name": "nim-proxy",
+  "image": "docker.io/bkgzigh/nim-proxy:latest",
+  "port": 8000,
+  "protocol": "http",
+  "env": {
+    "HOST": "0.0.0.0",
+    "PORT": "8000",
+    "DATA_DIR": "/data",
+    "TRUST_PROXY": "true",
+    "R2_ENABLED": "true"
+  },
+  "limits": {
+    "memory_mb": 1024,
+    "cpu_ms": 10000
+  }
+}
